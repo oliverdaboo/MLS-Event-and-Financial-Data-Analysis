@@ -319,3 +319,6 @@ mls_cluster_analysis<-mls_team_analysis |>
     mean_shots_against=mean(shots_against, na.rm=TRUE),
     n_teams = n()
   ) 
+
+mls_team_analysis|>
+  filter(salary_xG_clusters==2)
