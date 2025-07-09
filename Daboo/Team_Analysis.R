@@ -229,6 +229,7 @@ mls_team_analysis <- mls_team_analysis |>
 
 mls_team_analysis<-mls_team_analysis|>
   slice(-49)
+
 ## linear regression
 
 # looking at distribution of variables
@@ -246,3 +247,75 @@ avg_guranteed_lm<-lm(xgoal_difference~avg_guaranteed_compensation,
                      data=mls_team_analysis)
 tidy(avg_guranteed_lm, conf.int = TRUE, conf.level = .95)
 
+## Clustering by xG difference and avg salary
+
+mls_team_analysis|>
+  ggplot(aes(avg_guaranteed_compensation))+
+  geom_histogram(bins=10)
+
+mls_team_analysis<-mls_team_analysis|>
+  mutate(log_avg_salary=log(avg_guaranteed_compensation))
+
+mls_team_analysis|>
+  ggplot(aes(log_avg_salary))+
+  geom_histogram(bins=10)
+
+mls_simple_cluster_data<-mls_team_analysis|>
+  select(team, year, avg_guaranteed_compensation, log_avg_salary,
+         xgoal_difference) |>  # domain-relevant
+  mutate(team_year = paste(team, year, sep = "_")) |>
+  relocate(team_year) |>
+  column_to_rownames("team_year") |>
+  select(where(is.numeric)) |>
+  drop_na()
+
+mls_simple_cluster_data<-mls_simple_cluster_data|>
+  mutate(std_avg_salary=as.numeric(scale(avg_guaranteed_compensation, 
+                                         center=TRUE, scale=TRUE)),
+         std_log_avg_salary=as.numeric(scale(log_avg_salary,
+                                             center=TRUE, scale=TRUE)),
+         std_xG_diff=as.numeric(scale(xgoal_difference, 
+                                      center=TRUE, scale=TRUE)))
+mls_simple_cluster_data|>
+  select(std_log_avg_salary, std_xG_diff)|>
+  fviz_nbclust(kmeans, method = "wss")
+
+mls_simple_kmeans<-mls_simple_cluster_data|>
+  select(std_log_avg_salary, std_xG_diff)|>
+  kmeans(algorithm="Lloyd", centers=4, nstart=30)
+
+mls_simple_cluster_data|>
+  mutate(salary_xG_clusters=as.factor(mls_simple_kmeans$cluster))|>
+  ggplot(aes(log_avg_salary, xgoal_difference, color=salary_xG_clusters))+
+  geom_point(size=4)+
+  ggthemes::scale_color_colorblind()+
+  theme(legend.position = "bottom") 
+
+mls_simple_cluster_data<-mls_simple_cluster_data|>
+  mutate(salary_xG_clusters=as.factor(mls_simple_kmeans$cluster))
+
+mls_team_analysis<-mls_team_analysis|>
+  mutate(team_year = paste(team, year, sep = "_")) |>
+  relocate(team_year)
+
+mls_team_analysis<-mls_team_analysis|>
+  mutate(salary_xG_clusters=as.factor(mls_simple_kmeans$cluster))|>
+  relocate(salary_xG_clusters, .before=2)
+
+mls_cluster_analysis<-mls_team_analysis |>
+  group_by(salary_xG_clusters) |>
+  summarise(
+    mean_xG_diff = mean(xgoal_difference, na.rm = TRUE),
+    mean_avg_salary = mean(avg_guaranteed_compensation, na.rm = TRUE),
+    mean_total_salary = mean(total_guaranteed_compensation, na.rm = TRUE),
+    mean_goals_added_for = mean(total_goals_added_for, na.rm = TRUE),
+    mean_goals_added_against = mean(total_goals_added_against, na.rm = TRUE),
+    mean_xPoints=mean(xpoints, na.rm=TRUE),
+    mean_xG_for=mean(xgoals_for, na.rm=TRUE),
+    mean_xG_against=mean(xgoals_against, na.rm=TRUE),
+    mean_goals_for=mean(goals_for, na.rm=TRUE),
+    mean_goals_against=mean(goals_against, na.rm=TRUE),
+    mean_shots_for=mean(shots_for, na.rm=TRUE),
+    mean_shots_against=mean(shots_against, na.rm=TRUE),
+    n_teams = n()
+  ) 
