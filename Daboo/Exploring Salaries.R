@@ -201,3 +201,17 @@ salaries_position_24|>
   group_by(general_position)|>
   summarise(mean_salary=mean(guaranteed_compensation))|>
   arrange(desc(mean_salary))
+
+# Looking at rosters for teams in cluster 2
+
+salaries_position_24|>
+  filter(general_position==c("DM", "CB", "FB"), team=="PHI")
+
+salaries_position_24|>
+  filter(position=="D", team=="PHI")
+
+salaries_position_24|>
+  filter(general_position==c("DM", "CB", "FB"), team=="RSL")
+
+salaries_position_24|>
+  filter(position=="D", team=="RSL")
