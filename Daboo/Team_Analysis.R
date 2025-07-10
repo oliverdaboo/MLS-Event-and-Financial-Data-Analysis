@@ -322,3 +322,52 @@ mls_cluster_analysis<-mls_team_analysis |>
 
 mls_team_analysis|>
   filter(salary_xG_clusters==2)
+
+mls_teams_24<-mls_teams_24|>
+  mutate(mean_diff_shots_against=shots_against-mean(shots_against),
+         mean_diff_goals_against=goals_against-mean(goals_against),
+         mean_diff_xG_against=xgoals_against-mean(xgoals_against))
+
+mls_teams_24|>
+  select(team_abbreviation, mean_diff_shots_against, mean_diff_goals_against,
+         mean_diff_xG_against)|>
+  filter(team_abbreviation %in% c("RSL", "PHI"))
+
+player_salaries_23<-asa$get_player_salaries(leagues="mls", 
+                                            season_name=2023)
+player_salaries_23<-player_salaries_23|>
+  left_join(mls_players|>
+              select(player_id, player_name), by="player_id")
+
+player_salaries_23<-player_salaries_23|>
+  filter(mlspa_release=="2023-09-15")
+
+player_salaries_23<-player_salaries_23|>
+  left_join(mls_teams|>
+              select(team_id, team_abbreviation), by="team_id")
+
+player_salaries_23<-player_salaries_23|>
+  mutate(team=team_abbreviation)|>
+  select(-player_id, -team_id, -season_name, -mlspa_release, -competition, 
+         -team_abbreviation)|>
+  relocate(player_name, .before=1)|>
+  relocate(team, .before=2)
+
+player_salaries_23|>
+  filter(position=="D", team=="ORL")
+
+
+
+# linear regression for xG difference and goals added for
+xg_goals_added_lm<-lm(xgoal_difference~total_goals_added_for, 
+                      data=mls_team_analysis)
+library(broom)
+tidy(xg_goals_added_lm, conf.int = TRUE, conf.level = .95)
+
+mls_team_analysis<-mls_team_analysis|>
+  mutate(goals_added_diff=total_goals_added_for-total_goals_added_against)
+
+xgdiff_goals_added_diff_lm<-lm(xgoal_difference~goals_added_diff, 
+                      data=mls_team_analysis)
+
+tidy(xgdiff_goals_added_diff_lm, conf.int = TRUE, conf.level = .95)
