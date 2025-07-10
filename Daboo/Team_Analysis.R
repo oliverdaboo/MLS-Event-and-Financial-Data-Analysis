@@ -363,6 +363,7 @@ xg_goals_added_lm<-lm(xgoal_difference~total_goals_added_for,
                       data=mls_team_analysis)
 library(broom)
 tidy(xg_goals_added_lm, conf.int = TRUE, conf.level = .95)
+glance(xg_goals_added_lm)
 
 mls_team_analysis<-mls_team_analysis|>
   mutate(goals_added_diff=total_goals_added_for-total_goals_added_against)
@@ -371,3 +372,6 @@ xgdiff_goals_added_diff_lm<-lm(xgoal_difference~goals_added_diff,
                       data=mls_team_analysis)
 
 tidy(xgdiff_goals_added_diff_lm, conf.int = TRUE, conf.level = .95)
+glance(xgdiff_goals_added_diff_lm)
+
+cor(mls_team_analysis$goals_added_diff, mls_team_analysis$points)^2
