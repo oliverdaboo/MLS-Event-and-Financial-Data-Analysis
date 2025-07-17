@@ -196,15 +196,21 @@ mls_simple_kmeans_log<-mls_simple_cluster_data|>
   kmeans(algorithm="Lloyd", centers=4, nstart=30)
 
 mls_simple_cluster_data|>
-  mutate(salary_xG_clusters_log=as.factor(mls_simple_kmeans_log$cluster))|>
-  ggplot(aes(avg_guaranteed_compensation, xgoal_difference, color=salary_xG_clusters_log))+
+  mutate(salary_xG_clusters_log=factor(mls_simple_kmeans_log$cluster, 
+                                       labels=c("1", "2", "3", "4")),
+         team_year=rownames(mls_simple_cluster_data))|>
+  ggplot(aes(avg_guaranteed_compensation, xgoal_difference, 
+             color=salary_xG_clusters_log))+
   geom_point(size=4)+
+  geom_text(aes(label=team_year), size=3, show.legend=FALSE, vjust=-1)+
   ggthemes::scale_color_colorblind()+
-  theme(legend.position = "bottom") 
+  labs(title = "k-Means Clustering of Salary and xG Difference for the MLS 2021-2024", 
+       x="Average Guaranteed Compensation",
+       y="xG Difference",
+       color="Clusters")+
+  theme(legend.position = "bottom", plot.title=element_text(hjust=.5))+
+  theme_minimal()
 
-fviz_cluster(mls_simple_kmeans_log, data = mls_simple_cluster_data, 
-             repel = TRUE, 
-             labelsize = 8)
 
 mls_simple_cluster_data<-mls_simple_cluster_data|>
   mutate(salary_xG_clusters_log=as.factor(mls_simple_kmeans_log$cluster))
@@ -239,6 +245,66 @@ mls_cluster_analysis<-mls_team_analysis |>
     n_teams = n()
   ) 
 
+# ANOVA to see which defensive group means are different
+
+anova_variables<-c("total_goals_added_against", "xgoals_against",
+                   "goals_against", "shots_against", 
+                   "goals_added_against_Shooting",
+                   "goals_added_for_Interrupting",
+                   "goals_added_for_Claiming")
+simple_cluster_anova<-lapply(anova_variables, function(var){
+  formula<-as.formula(paste(var, "~ salary_xG_clusters_log"))
+  model<-aov(formula, data=mls_team_analysis)
+  summary_results<-summary(model)[[1]]
+  data.frame(variable=var,
+             F_value=summary_results$'F value'[1],
+             p_value=summary_results$'Pr(>F)'[1])
+})
+
+anova_df<-do.call(rbind, simple_cluster_anova)
+anova_df<-anova_df[order(anova_df$p_value), ]
+print(anova_df)
+
+# Tukey-HSD to see which groups cluster 2 differs from cluster 3
+significant_variables<-c("total_goals_added_against", "xgoals_against",
+                         "goals_against", "shots_against", 
+                         "goals_added_against_Shooting")
+
+simple_cluster_tukey<-function(var, data){
+  formula<-as.formula(paste(var, "~ salary_xG_clusters_log"))
+  aov_model<-aov(formula, data=data)
+  tukey<-TukeyHSD(aov_model)
+  
+  tukey_df <- as.data.frame(tukey[[1]])
+  tukey_df$Comparison <- rownames(tukey_df)
+  
+  filter_row <- grep("2-3|3-2", tukey_df$Comparison)
+  if (length(filter_row) > 0) {
+    result <- tukey_df[filter_row, ]
+    result$Variable <- var
+    return(result)
+  } else {
+    return(NULL)
+  }
+}
+
+tukey_results <- lapply(significant_variables, simple_cluster_tukey, 
+                        data = mls_team_analysis)
+
+# Combine all results into one dataframe
+tukey_23_df <- do.call(rbind, tukey_results)
+
+# Clean up and reorder columns
+tukey_23_df <- tukey_23_df %>%
+  select(Variable, Comparison, diff, lwr, upr, `p adj`) %>%
+  rename(
+    Difference = diff,
+    Lower_CI = lwr,
+    Upper_CI = upr,
+    Adjusted_p = `p adj`
+  )
+
+print(tukey_23_df)
 
 # Getting salary break downs positionally for 24
 mls_players<-asa$get_players(leagues="mls")
@@ -309,7 +375,7 @@ salaries_24<-salaries_24|>
   relocate(team_year)
 
 team_defender_stats_24<-salaries_24|>
-  filter(general_position %in% c("CB", "FB"))|>
+  filter(general_position %in% c("CB", "FB", "DM"))|>
   group_by(team_year)|>
   summarise(total_salary_def=sum(guaranteed_compensation),
             avg_salary_def=total_salary_def/n(),
@@ -318,26 +384,8 @@ team_defender_stats_24<-salaries_24|>
             total_ga_90_10k_def=sum(ga_90_10k),
             avg_ga_90_10k_def=total_ga_90_10k_def/n())
 
-mls_team_analysis<-mls_team_analysis|>
-  left_join(team_defender_stats_24,
-              by="team_year")
-
-team_mid_stats_24<-salaries_24|>
-  filter(general_position %in% c("DM", "CM", "AM"))|>
-  group_by(team_year)|>
-  summarise(total_salary_mid=sum(guaranteed_compensation),
-            avg_salary_mid=total_salary_mid/n(),
-            total_ga_90_mid=sum(ga_90),
-            avg_ga_90_mid=total_ga_90_mid/n(),
-            total_ga_90_10k_mid=sum(ga_90_10k),
-            avg_ga_90_10k_mid=total_ga_90_10k_mid/n())
-
-mls_team_analysis<-mls_team_analysis|>
-  left_join(team_mid_stats_24,
-            by="team_year")
-
 team_fwd_stats_24<-salaries_24|>
-  filter(general_position %in% c("W", "ST"))|>
+  filter(general_position %in% c("W", "ST", "CM", "AM"))|>
   group_by(team_year)|>
   summarise(total_salary_fwd=sum(guaranteed_compensation),
             avg_salary_fwd=total_salary_fwd/n(),
@@ -409,7 +457,7 @@ salaries_23<-salaries_23|>
   relocate(team_year)
 
 team_defender_stats_23<-salaries_23|>
-  filter(general_position %in% c("CB", "FB"))|>
+  filter(general_position %in% c("CB", "FB", "DM"))|>
   group_by(team_year)|>
   summarise(total_salary_def=sum(guaranteed_compensation),
             avg_salary_def=total_salary_def/n(),
@@ -418,18 +466,9 @@ team_defender_stats_23<-salaries_23|>
             total_ga_90_10k_def=sum(ga_90_10k),
             avg_ga_90_10k_def=total_ga_90_10k_def/n())
 
-team_mid_stats_23<-salaries_23|>
-  filter(general_position %in% c("DM", "CM", "AM"))|>
-  group_by(team_year)|>
-  summarise(total_salary_mid=sum(guaranteed_compensation),
-            avg_salary_mid=total_salary_mid/n(),
-            total_ga_90_mid=sum(ga_90),
-            avg_ga_90_mid=total_ga_90_mid/n(),
-            total_ga_90_10k_mid=sum(ga_90_10k),
-            avg_ga_90_10k_mid=total_ga_90_10k_mid/n())
 
 team_fwd_stats_23<-salaries_23|>
-  filter(general_position %in% c("W", "ST"))|>
+  filter(general_position %in% c("W", "ST", "CM", "AM"))|>
   group_by(team_year)|>
   summarise(total_salary_fwd=sum(guaranteed_compensation),
             avg_salary_fwd=total_salary_fwd/n(),
@@ -500,7 +539,7 @@ salaries_22<-salaries_22|>
   relocate(team_year)
 
 team_defender_stats_22<-salaries_22|>
-  filter(general_position %in% c("CB", "FB"))|>
+  filter(general_position %in% c("CB", "FB", "DM"))|>
   group_by(team_year)|>
   summarise(total_salary_def=sum(guaranteed_compensation),
             avg_salary_def=total_salary_def/n(),
@@ -509,18 +548,8 @@ team_defender_stats_22<-salaries_22|>
             total_ga_90_10k_def=sum(ga_90_10k),
             avg_ga_90_10k_def=total_ga_90_10k_def/n())
 
-team_mid_stats_22<-salaries_22|>
-  filter(general_position %in% c("DM", "CM", "AM"))|>
-  group_by(team_year)|>
-  summarise(total_salary_mid=sum(guaranteed_compensation),
-            avg_salary_mid=total_salary_mid/n(),
-            total_ga_90_mid=sum(ga_90),
-            avg_ga_90_mid=total_ga_90_mid/n(),
-            total_ga_90_10k_mid=sum(ga_90_10k),
-            avg_ga_90_10k_mid=total_ga_90_10k_mid/n())
-
 team_fwd_stats_22<-salaries_22|>
-  filter(general_position %in% c("W", "ST"))|>
+  filter(general_position %in% c("W", "ST", "CM", "AM"))|>
   group_by(team_year)|>
   summarise(total_salary_fwd=sum(guaranteed_compensation),
             avg_salary_fwd=total_salary_fwd/n(),
@@ -588,7 +617,7 @@ salaries_21<-salaries_21|>
   relocate(team_year)
 
 team_defender_stats_21<-salaries_21|>
-  filter(general_position %in% c("CB", "FB"))|>
+  filter(general_position %in% c("CB", "FB", "DM"))|>
   group_by(team_year)|>
   summarise(total_salary_def=sum(guaranteed_compensation),
             avg_salary_def=total_salary_def/n(),
@@ -597,18 +626,9 @@ team_defender_stats_21<-salaries_21|>
             total_ga_90_10k_def=sum(ga_90_10k),
             avg_ga_90_10k_def=total_ga_90_10k_def/n())
 
-team_mid_stats_21<-salaries_21|>
-  filter(general_position %in% c("DM", "CM", "AM"))|>
-  group_by(team_year)|>
-  summarise(total_salary_mid=sum(guaranteed_compensation),
-            avg_salary_mid=total_salary_mid/n(),
-            total_ga_90_mid=sum(ga_90),
-            avg_ga_90_mid=total_ga_90_mid/n(),
-            total_ga_90_10k_mid=sum(ga_90_10k),
-            avg_ga_90_10k_mid=total_ga_90_10k_mid/n())
 
 team_fwd_stats_21<-salaries_21|>
-  filter(general_position %in% c("W", "ST"))|>
+  filter(general_position %in% c("W", "ST", "CM", "AM"))|>
   group_by(team_year)|>
   summarise(total_salary_fwd=sum(guaranteed_compensation),
             avg_salary_fwd=total_salary_fwd/n(),
@@ -631,17 +651,24 @@ mls_team_analysis<-mls_team_analysis|>
 
 team_def_stats<-bind_rows(team_defender_stats_21, team_defender_stats_22,
                                team_defender_stats_23, team_defender_stats_24)
-team_mid_stats<-bind_rows(team_mid_stats_21, team_mid_stats_22,
-                          team_mid_stats_23, team_mid_stats_24)
 team_fwd_stats<-bind_rows(team_fwd_stats_21, team_fwd_stats_22, 
                           team_fwd_stats_23, team_fwd_stats_24)
 
 mls_team_analysis<-mls_team_analysis|>
+  select(-total_salary_def, -total_ga_90_def, -total_ga_90_10k_def, 
+         -avg_salary_def, -avg_ga_90_def, -avg_ga_90_10k_def,
+         -total_salary_mid, -total_ga_90_mid, -total_ga_90_10k_mid,
+         -avg_salary_mid, -avg_ga_90_mid, -avg_ga_90_10k_mid,
+         -total_salary_fwd, -total_ga_90_fwd, -total_ga_90_10k_fwd,
+         -avg_salary_fwd, -avg_ga_90_fwd, -avg_ga_90_10k_fwd)
+
+mls_team_analysis<-mls_team_analysis|>
   left_join(team_def_stats, by="team_year")
 mls_team_analysis<-mls_team_analysis|>
-  left_join(team_mid_stats, by="team_year")
-mls_team_analysis<-mls_team_analysis|>
   left_join(team_fwd_stats, by="team_year")
+
+mls_team_analysis<-mls_team_analysis|>
+  mutate(ga_per_10k=(total_goals_added_for/total_guaranteed_compensation)*10000)
 
 mls_cluster_analysis<-mls_team_analysis |>
   group_by(salary_xG_clusters_log) |>
@@ -665,9 +692,6 @@ mls_cluster_analysis<-mls_team_analysis |>
     mean_avg_salary_def=mean(avg_salary_def),
     mean_avg_ga_90_def=mean(avg_ga_90_def),
     mean_avg_ga_90_10k_def=mean(avg_ga_90_10k_def),
-    mean_avg_salary_mid=mean(avg_salary_mid),
-    mean_avg_ga_90_mid=mean(avg_ga_90_mid),
-    mean_avg_ga_90_10k_mid=mean(avg_ga_90_10k_mid),
     mean_avg_salary_fwd=mean(avg_salary_fwd),
     mean_avg_ga_90_fwd=mean(avg_ga_90_fwd),
     mean_avg_ga_90_10k_fwd=mean(avg_ga_90_10k_fwd),
@@ -680,27 +704,36 @@ mls_team_analysis|>
 
 # Linear regression predicting def stats from def spending
 library(broom)
-def_spend_xg_diff_lm<-lm(mls_team_analysis$xgoal_difference~
-                   mls_team_analysis$avg_salary_def)
-tidy(def_spend_xg_diff_lm)
-
-def_spend_xg_against_lm<-lm(mls_team_analysis$xgoals_against~
-                           mls_team_analysis$avg_salary_def)
-tidy(def_spend_xg_against_lm)
-
-def_spend_ga_against_lm<-lm(mls_team_analysis$total_goals_added_against~
-                              mls_team_analysis$avg_salary_def)
-tidy(def_spend_ga_against_lm)
-
-def_spend_g_against_lm<-lm(mls_team_analysis$goals_against~
-                              mls_team_analysis$avg_salary_def)
-tidy(def_spend_g_against_lm)
-
-def_spend_shots_against_lm<-lm(mls_team_analysis$shots_against~
-                             mls_team_analysis$avg_salary_def)
-tidy(def_spend_shots_against_lm)
-
+def_spend_ga_lm<-lm(mls_team_analysis$ga_per_10k~
+                      mls_team_analysis$avg_salary_def)
+tidy(def_spend_ga_lm, conf.int=TRUE, conf.level = .95)
+glance(def_spend_ga_lm)
   
+fwd_spend_ga_lm<-lm(mls_team_analysis$ga_per_10k~
+                      mls_team_analysis$avg_salary_fwd)
+tidy(fwd_spend_ga_lm, conf.int=TRUE, conf.level = .95)
+glance(fwd_spend_ga_lm)
+
+mls_team_analysis<-mls_team_analysis|>
+  mutate(fwd_def_spend_ratio=avg_salary_fwd/avg_salary_def)
+
+fwd_def_spend_ratio_lm<-lm(mls_team_analysis$ga_per_10k~
+                             mls_team_analysis$fwd_def_spend_ratio)
+tidy(fwd_def_spend_ratio_lm, conf.int=TRUE, conf.level = .95)
+glance(fwd_def_spend_ratio_lm)
+
+fwd_def_spend_ratio_ga_lm<-lm(mls_team_analysis$total_goals_added_for~
+                             mls_team_analysis$fwd_def_spend_ratio)
+tidy(fwd_def_spend_ratio_ga_lm, conf.int=TRUE, conf.level = .95)
+glance(fwd_def_spend_ratio_ga_lm)
+
+mls_team_analysis<-mls_team_analysis|>
+  mutate(total_fwd_def_spend_ratio=total_salary_fwd/total_salary_def)
+
+total_fwd_def_spend_ratio_lm<-lm(mls_team_analysis$ga_per_10k~
+                             mls_team_analysis$total_fwd_def_spend_ratio)
+tidy(total_fwd_def_spend_ratio_lm, conf.int=TRUE, conf.level = .95)
+glance(total_fwd_def_spend_ratio_lm)
 
 # k-means clustering teams
 library(cluster)
@@ -859,19 +892,462 @@ fviz_cluster(kmeans_result_2, data = scaled_data_2,
 
 analyze_cluster_drivers(mls_cluster_data_2, scaled_data_2, kmeans_result_2)
 
-## linear regression
+# Percentile Analysis
 
-# looking at distribution of variables
+# Getting salary break downs positionally for 24
+mls_players<-asa$get_players(leagues="mls")
+all_salaries_2024<-asa$get_player_salaries(leagues = "mls", 
+                                       start_date="2024-09-13", 
+                                       end_date="2024-09-14")
+all_salaries_24<-all_salaries_2024|>
+  left_join(mls_players|>
+              select(player_id, player_name), by="player_id")|>
+  left_join(mls_teams|>
+              select(team_id, team=team_abbreviation), by="team_id")
 
-mls_team_analysis|>
-  ggplot(aes(total_goals_added_against))+
-  geom_histogram(bins=10)
+all_player_goals_added_24<-asa$get_player_goals_added(leagues="mls",
+                                                  season_name=2024)
+all_salaries_24<-all_salaries_24|>
+  left_join(all_player_goals_added_24|>
+              select(player_id, general_position, minutes_played, data), 
+            by=c("player_id"))|>
+  select(-player_id, -team_id, -season_name, -mlspa_release, -competition)
 
-total_guranteed_lm<-lm(xgoal_difference~total_guaranteed_compensation, 
-                       data=mls_team_analysis)
-library(broom)
-tidy(total_guranteed_lm, conf.int = TRUE, conf.level = .95)
+all_salaries_24<-all_salaries_24|>
+  drop_na()|>
+  mutate(goals_added=data)|>
+  select(-data)
 
-avg_guranteed_lm<-lm(xgoal_difference~avg_guaranteed_compensation, 
-                     data=mls_team_analysis)
-tidy(avg_guranteed_lm, conf.int = TRUE, conf.level = .95)
+all_salaries_24<-all_salaries_24|>
+  mutate(
+    total_goals_added_raw = map_dbl(goals_added, ~sum(.x$goals_added_raw, na.rm = TRUE)),
+    total_goals_added_above_avg = map_dbl(goals_added, ~sum(.x$goals_added_above_avg, na.rm = TRUE)),
+    total_count_actions = map_dbl(goals_added, ~sum(.x$count_actions, na.rm = TRUE))
+  )
+
+# adding the goals_added details to the data set
+expanded<-all_salaries_24|>
+  select(player_name, goals_added)|>
+  unnest(goals_added)
+wide_goals_added<-expanded|>
+  pivot_wider(names_from=action_type,
+              values_from=c(goals_added_raw, goals_added_above_avg, count_actions),
+              names_sep="_")
+
+all_salaries_24<-all_salaries_24|>
+  select(-goals_added)|>
+  left_join(wide_goals_added, by="player_name")
+
+all_salaries_24<-all_salaries_24|>
+  mutate(ga_90=(total_goals_added_raw/minutes_played)*90,
+         ga_avg_90=(total_goals_added_above_avg/minutes_played)*90,
+         ga_90_10k=(ga_90/guaranteed_compensation)*10000,
+         ga_avg_90_10k=(ga_avg_90/guaranteed_compensation)*10000)
+
+all_salaries_24<-all_salaries_24|>
+  mutate(year=2024,
+         team_year = paste(team, year, sep = "_"))
+
+all_salaries_24<-all_salaries_24|>
+  relocate(team_year)
+
+top15_24<-all_salaries_24|>
+  group_by(team_year)|>
+  arrange(desc(guaranteed_compensation), .bygroup=TRUE)|>
+  slice_head(n=15)|>
+  mutate(rank_15=row_number())|>
+  ungroup()
+
+percentiles_24<-top15_24|>
+  mutate(tier=case_when(
+    rank_15<=5 ~ "Top 5",
+    rank_15<=10 ~ "Middle 5",
+    TRUE ~ "Bottom 5"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top15_24 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)
+
+# Getting salary break downs positionally for 23
+
+all_salaries_2023<-asa$get_player_salaries(leagues = "mls", 
+                                       start_date="2023-09-15", 
+                                       end_date="2023-09-16")
+all_salaries_23<-all_salaries_2023|>
+  left_join(mls_players|>
+              select(player_id, player_name), by="player_id")|>
+  left_join(mls_teams|>
+              select(team_id, team=team_abbreviation), by="team_id")
+
+all_player_goals_added_23<-asa$get_player_goals_added(leagues="mls",
+                                                  season_name=2023)
+
+all_salaries_23<-all_salaries_23|>
+  left_join(all_player_goals_added_23|>
+              select(player_id, general_position, minutes_played, data), 
+            by=c("player_id"))|>
+  select(-player_id, -team_id, -mlspa_release, -competition)
+
+all_salaries_23<-all_salaries_23|>
+  drop_na()|>
+  mutate(goals_added=data)|>
+  select(-data)
+
+all_salaries_23<-all_salaries_23|>
+  mutate(
+    total_goals_added_raw = map_dbl(goals_added, ~sum(.x$goals_added_raw, na.rm = TRUE)),
+    total_goals_added_above_avg = map_dbl(goals_added, ~sum(.x$goals_added_above_avg, na.rm = TRUE)),
+    total_count_actions = map_dbl(goals_added, ~sum(.x$count_actions, na.rm = TRUE))
+  )
+
+# adding the goals_added details to the data set
+expanded<-all_salaries_23|>
+  select(player_name, goals_added)|>
+  unnest(goals_added)
+wide_goals_added<-expanded|>
+  pivot_wider(names_from=action_type,
+              values_from=c(goals_added_raw, goals_added_above_avg, count_actions),
+              names_sep="_")
+
+all_salaries_23<-all_salaries_23|>
+  select(-goals_added)|>
+  left_join(wide_goals_added, by="player_name")
+
+all_salaries_23<-all_salaries_23|>
+  mutate(ga_90=(total_goals_added_raw/minutes_played)*90,
+         ga_avg_90=(total_goals_added_above_avg/minutes_played)*90,
+         ga_90_10k=(ga_90/guaranteed_compensation)*10000,
+         ga_avg_90_10k=(ga_avg_90/guaranteed_compensation)*10000)
+
+all_salaries_23<-all_salaries_23|>
+  mutate(team_year = paste(team, season_name, sep = "_"))
+
+all_salaries_23<-all_salaries_23|>
+  relocate(team_year)
+
+top15_23<-all_salaries_23|>
+  group_by(team_year)|>
+  arrange(desc(guaranteed_compensation), .bygroup=TRUE)|>
+  slice_head(n=15)|>
+  mutate(rank_15=row_number())|>
+  ungroup()
+
+percentiles_23<-top15_23|>
+  mutate(tier=case_when(
+    rank_15<=5 ~ "Top 5",
+    rank_15<=10 ~ "Middle 5",
+    TRUE ~ "Bottom 5"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top15_23 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)
+
+# Getting salary break downs positionally for 22
+
+all_salaries_2022<-asa$get_player_salaries(leagues = "mls", 
+                                       season_name=2022)
+all_salaries_22<-all_salaries_2022|>
+  left_join(mls_players|>
+              select(player_id, player_name), by="player_id")|>
+  left_join(mls_teams|>
+              select(team_id, team=team_abbreviation), by="team_id")
+
+all_salaries_22<-all_salaries_22|>
+  filter((team == "MTL" & mlspa_release == "2022-04-15") |
+           (team != "MTL" & mlspa_release == "2022-09-02"))
+
+all_player_goals_added_22<-asa$get_player_goals_added(leagues="mls",
+                                                  season_name=2022)
+
+all_salaries_22<-all_salaries_22|>
+  left_join(all_player_goals_added_22|>
+              select(player_id, general_position, minutes_played, data), 
+            by=c("player_id"))|>
+  select(-player_id, -team_id, -mlspa_release, -competition)
+
+all_salaries_22<-all_salaries_22|>
+  drop_na()|>
+  mutate(goals_added=data)|>
+  select(-data)
+
+all_salaries_22<-all_salaries_22|>
+  mutate(
+    total_goals_added_raw = map_dbl(goals_added, ~sum(.x$goals_added_raw, na.rm = TRUE)),
+    total_goals_added_above_avg = map_dbl(goals_added, ~sum(.x$goals_added_above_avg, na.rm = TRUE)),
+    total_count_actions = map_dbl(goals_added, ~sum(.x$count_actions, na.rm = TRUE))
+  )
+
+# adding the goals_added details to the data set
+expanded<-all_salaries_22|>
+  select(player_name, goals_added)|>
+  unnest(goals_added)
+wide_goals_added<-expanded|>
+  pivot_wider(names_from=action_type,
+              values_from=c(goals_added_raw, goals_added_above_avg, count_actions),
+              names_sep="_")
+
+all_salaries_22<-all_salaries_22|>
+  select(-goals_added)|>
+  left_join(wide_goals_added, by="player_name")
+
+all_salaries_22<-all_salaries_22|>
+  mutate(ga_90=(total_goals_added_raw/minutes_played)*90,
+         ga_avg_90=(total_goals_added_above_avg/minutes_played)*90,
+         ga_90_10k=(ga_90/guaranteed_compensation)*10000,
+         ga_avg_90_10k=(ga_avg_90/guaranteed_compensation)*10000)
+
+all_salaries_22<-all_salaries_22|>
+  mutate(team_year = paste(team, season_name, sep = "_"))
+
+all_salaries_22<-all_salaries_22|>
+  relocate(team_year)
+
+top15_22<-all_salaries_22|>
+  group_by(team_year)|>
+  arrange(desc(guaranteed_compensation), .bygroup=TRUE)|>
+  slice_head(n=15)|>
+  mutate(rank_15=row_number())|>
+  ungroup()
+
+percentiles_22<-top15_22|>
+  mutate(tier=case_when(
+    rank_15<=5 ~ "Top 5",
+    rank_15<=10 ~ "Middle 5",
+    TRUE ~ "Bottom 5"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top15_22 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)
+
+
+# Getting salary breaks downs positionally for 21
+
+all_salaries_2021<-asa$get_player_salaries(leagues = "mls", 
+                                       start_date="2021-09-30", 
+                                       end_date="2021-10-01")
+all_salaries_21<-all_salaries_2021|>
+  left_join(mls_players|>
+              select(player_id, player_name), by="player_id")|>
+  left_join(mls_teams|>
+              select(team_id, team=team_abbreviation), by="team_id")
+
+all_player_goals_added_21<-asa$get_player_goals_added(leagues="mls",
+                                                  season_name=2021)
+
+all_salaries_21<-all_salaries_21|>
+  left_join(all_player_goals_added_21|>
+              select(player_id, general_position, minutes_played, data), 
+            by=c("player_id"))|>
+  select(-player_id, -team_id, -mlspa_release, -competition)
+
+all_salaries_21<-all_salaries_21|>
+  drop_na()|>
+  mutate(goals_added=data)|>
+  select(-data)
+
+all_salaries_21<-all_salaries_21|>
+  mutate(
+    total_goals_added_raw = map_dbl(goals_added, ~sum(.x$goals_added_raw, na.rm = TRUE)),
+    total_goals_added_above_avg = map_dbl(goals_added, ~sum(.x$goals_added_above_avg, na.rm = TRUE)),
+    total_count_actions = map_dbl(goals_added, ~sum(.x$count_actions, na.rm = TRUE))
+  )
+
+# adding the goals_added details to the data set
+expanded<-all_salaries_21|>
+  select(player_name, goals_added)|>
+  unnest(goals_added)
+wide_goals_added<-expanded|>
+  pivot_wider(names_from=action_type,
+              values_from=c(goals_added_raw, goals_added_above_avg, count_actions),
+              names_sep="_")
+
+all_salaries_21<-all_salaries_21|>
+  select(-goals_added)|>
+  left_join(wide_goals_added, by="player_name")
+
+all_salaries_21<-all_salaries_21|>
+  mutate(ga_90=(total_goals_added_raw/minutes_played)*90,
+         ga_avg_90=(total_goals_added_above_avg/minutes_played)*90,
+         ga_90_10k=(ga_90/guaranteed_compensation)*10000,
+         ga_avg_90_10k=(ga_avg_90/guaranteed_compensation)*10000)
+
+all_salaries_21<-all_salaries_21|>
+  mutate(team_year = paste(team, season_name, sep = "_"))
+
+all_salaries_21<-all_salaries_21|>
+  relocate(team_year)
+
+top15_21<-all_salaries_21|>
+  group_by(team_year)|>
+  arrange(desc(guaranteed_compensation), .bygroup=TRUE)|>
+  slice_head(n=15)|>
+  mutate(rank_15=row_number())|>
+  ungroup()
+
+percentiles_21<-top15_21|>
+  mutate(tier=case_when(
+    rank_15<=5 ~ "Top 5",
+    rank_15<=10 ~ "Middle 5",
+    TRUE ~ "Bottom 5"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top15_21 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)
+
+mls_team_analysis<-mls_team_analysis|>
+  select(-`Bottom 5.x`, -`Bottom 5.y`, -`Middle 5.x`, -`Middle 5.y`,
+         -`Top 5.x`, -`Top 5.y`)
+
+salary_percentiles<-bind_rows(percentiles_21, percentiles_22,
+                              percentiles_23, percentiles_24)
+mls_team_analysis<-mls_team_analysis|>
+  left_join(salary_percentiles, by="team_year")
+
+mls_cluster_analysis<-mls_team_analysis |>
+  group_by(salary_xG_clusters_log) |>
+  summarise(
+    mean_xG_diff = mean(xgoal_difference, na.rm = TRUE),
+    mean_avg_salary = mean(avg_guaranteed_compensation, na.rm = TRUE),
+    mean_total_salary = mean(total_guaranteed_compensation, na.rm = TRUE),
+    mean_goals_added_for = mean(total_goals_added_for, na.rm = TRUE),
+    mean_goals_added_against = mean(total_goals_added_against, na.rm = TRUE),
+    mean_xPoints=mean(xpoints, na.rm=TRUE),
+    mean_xG_for=mean(xgoals_for, na.rm=TRUE),
+    mean_xG_against=mean(xgoals_against, na.rm=TRUE),
+    mean_goals_for=mean(goals_for, na.rm=TRUE),
+    mean_goals_against=mean(goals_against, na.rm=TRUE),
+    mean_shots_for=mean(shots_for, na.rm=TRUE),
+    mean_shots_against=mean(shots_against, na.rm=TRUE),
+    mean_goals_added_for_claiming=mean(goals_added_for_Claiming, na.rm=TRUE),
+    mean_goals_added_for_interrupting=mean(goals_added_for_Interrupting, na.rm=TRUE),
+    mean_goals_added_for_fouling=mean(goals_added_for_Fouling, na.rm=TRUE),
+    mean_goals_added_against_shooting=mean(goals_added_against_Shooting, na.rm=TRUE),
+    mean_avg_salary_def=mean(avg_salary_def),
+    mean_avg_ga_90_def=mean(avg_ga_90_def),
+    mean_avg_ga_90_10k_def=mean(avg_ga_90_10k_def),
+    mean_avg_salary_mid=mean(avg_salary_mid),
+    mean_avg_ga_90_mid=mean(avg_ga_90_mid),
+    mean_avg_ga_90_10k_mid=mean(avg_ga_90_10k_mid),
+    mean_avg_salary_fwd=mean(avg_salary_fwd),
+    mean_avg_ga_90_fwd=mean(avg_ga_90_fwd),
+    mean_avg_ga_90_10k_fwd=mean(avg_ga_90_10k_fwd),
+    mean_bottom_5=mean(`Bottom 5`),
+    mean_middle_5=mean(`Middle 5`),
+    mean_top_5=mean(`Top 5`),
+    n_teams = n()
+  ) 
+
+# Regression between salary percentiles and performance
+
+bottom_5_lm<-lm(mls_team_analysis$xgoal_difference~mls_team_analysis$bottom5_pct)
+tidy(bottom_5_lm)
+glance(bottom_5_lm)
+
+middle_5_lm<-lm(mls_team_analysis$xgoal_difference~mls_team_analysis$middle5_pct)
+tidy(middle_5_lm, conf.int = TRUE, conf.level = .95)
+glance(middle_5_lm)
+
+top_5_lm<-lm(mls_team_analysis$xgoal_difference~mls_team_analysis$top5_pct)
+tidy(top_5_lm, conf.int = TRUE, conf.level = .95)
+glance(top_5_lm)
+
+salary_percent_mlr<-lm(mls_team_analysis$xgoal_difference~
+                         mls_team_analysis$middle5_pct + 
+                         mls_team_analysis$top5_pct)
+tidy(salary_percent_mlr, conf.int = TRUE, conf.level = .95)
+glance(salary_percent_mlr)
+
+# Creating a model based on salary percentiles
+mls_team_analysis<-mls_team_analysis|>
+  mutate(top5_pct=`Top 5`, middle5_pct=`Middle 5`, bottom5_pct=`Bottom 5`)|>
+  select(-`Top 5`, -`Middle 5`, -`Bottom 5`)
+library(caret)
+train_data<-mls_team_analysis|>
+  filter(year>=2021 & year<=2023)
+test_data<-mls_team_analysis|>
+  filter(year==2024)
+
+salary_percent_formula<-xgoal_difference ~ top5_pct + middle5_pct
+
+salary_percent_model<-train(salary_percent_formula,
+                            data=train_data,
+                            method="lm")
+
+summary(salary_percent_model$finalModel)
+
+model_pred<-predict(salary_percent_model, newdata=test_data)
+
+model_results<-test_data|>
+  mutate(pred_xG_difference=model_pred,
+         residuals=xgoal_difference-pred_xG_difference)
+
+model_rmse <- sqrt(mean(model_results$residuals^2))
+model_mae <- mean(abs(model_results$residuals))
+model_rmse
+model_mae
+
+summary(mls_team_analysis$xgoal_difference)
+sd(mls_team_analysis$xgoal_difference)
+range(mls_team_analysis$xgoal_difference)
+
+# Finding the best break down of salary
+
+# Creating grid of possible salary splits
+grid <- expand.grid(
+  top5_pct = seq(50, 87, by = .5), 
+  middle5_pct= seq(9, 34, by = .5))|>
+  mutate(bottom5_pct = 100 - top5_pct - middle5_pct)|>
+  filter(bottom5_pct>=3 & bottom5_pct<=19)
+
+# Predict using your trained model (e.g., linear model)
+grid$predicted_xG_diff <- predict(salary_percent_model, newdata = grid)
+
+# Find the best combination
+best_combo <- grid|>
+  arrange(desc(predicted_xG_diff)) |>
+  slice(1)
+
+print(best_combo)
+
+# visualizing
+ggplot(grid, aes(x = top5_pct, y = middle5_pct, fill = predicted_xG_diff)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  labs(title = "Predicted xG Difference by Salary Distribution",
+       x = "Top 5 Salary %", y = "Middle 5 Salary %", 
+       fill = "Predicted xG \n Difference") +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust=.5))
+
+mean(mls_team_analysis$bottom5_pct)
+
+cor(mls_team_analysis$xgoal_difference, mls_team_analysis$avg_salary_fwd)
+
