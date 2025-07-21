@@ -1351,3 +1351,23 @@ mean(mls_team_analysis$bottom5_pct)
 
 cor(mls_team_analysis$xgoal_difference, mls_team_analysis$avg_salary_fwd)
 
+cor(mls_team_analysis$total_goals_added_for, mls_team_analysis$xgoal_difference)
+
+cor(mls_team_analysis$total_goals_added_for, mls_team_analysis$goal_difference)
+
+# EDA Plots
+mls_team_analysis|>
+  ggplot(aes(total_goals_added_for, xgoal_difference))+
+  geom_point(size=4, color="red")+
+  geom_smooth(method="lm", se= FALSE, color="blue")+
+  theme_minimal()+
+  labs(title="G+ has a Strong Linear Relationship with xG Difference", 
+       x="Total G+ For", y="xG Difference")
+
+mls_team_analysis|>
+  ggplot(aes(total_goals_added_for, goal_difference))+
+  geom_point(size=4, color="red")+
+  geom_smooth(method="lm", se= FALSE, color="blue")+
+  theme_minimal()+
+  labs(title="G+ has a Strong Linear Relationship with Goal Difference", 
+       x="Total G+ For", y="Goal Difference")
