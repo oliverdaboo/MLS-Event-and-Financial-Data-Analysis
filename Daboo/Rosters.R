@@ -109,92 +109,6 @@ salary_percents<-bind_rows(percents_21, percents_22,
 mls_team_analysis<-mls_team_analysis|>
   left_join(salary_percents, by="team_year")
 
-# Modeling xG Diff on 21-23, testing on 24
-library(caret)
-train_data<-mls_team_analysis|>
-  filter(year>=2021 & year<=2023)
-test_data<-mls_team_analysis|>
-  filter(year==2024)
-
-designation_percent_formula<-xgoal_difference ~ DP + TAM
-
-designation_percent_model<-train(designation_percent_formula,
-                            data=train_data,
-                            method="lm")
-summary(designation_percent_model$finalModel)
-
-designation_prediction<-predict(designation_percent_model, newdata=test_data)
-
-designation_results<-test_data|>
-  mutate(pred_xG_diff=designation_prediction,
-         residuals=xgoal_difference-pred_xG_diff)
-
-designation_rmse <- sqrt(mean(designation_results$residuals^2))
-designation_mae <- mean(abs(designation_results$residuals))
-designation_rmse
-designation_mae
-
-# Different models on xG diff for 21-24
-
-# setting up cross-validation
-set.seed(100)
-N_FOLDS <- 5
-mls_team_analysis <- mls_team_analysis |>
-  mutate(fold = sample(rep(1:N_FOLDS, length.out = n())))
-table(mls_team_analysis$fold)
-
-designation_cv<- function(x){
-  # test and training data
-  cv_test_data<-mls_team_analysis|> filter(fold==x)
-  cv_train_data<-mls_team_analysis|> filter(fold!=x)
-  
-  # fitting models to training data
-  dp_lm<-lm(xgoal_difference ~ DP, data=cv_train_data)
-  tam_lm<-lm(xgoal_difference ~ TAM, data=cv_train_data)
-  dp_tam_interaction_lm<-lm(xgoal_difference ~ DP*TAM, data=cv_train_data)
-  dp_tam_mlr<-lm(xgoal_difference ~ DP + TAM, data=cv_train_data)
-  
-  # returning test results
-  out<-tibble(
-    dp_pred=predict(dp_lm, newdata = cv_test_data),
-    tam_pred=predict(tam_lm, newdata = cv_test_data),
-    dp_tam_interaction_pred=predict(dp_tam_interaction_lm, newdata = cv_test_data),
-    dp_tam_mlr_pred=predict(dp_tam_mlr, newdata = cv_test_data),
-    cv_test_actual=cv_test_data$xgoal_difference,
-    cv_test_fold=x
-  )
-  return(out)
-}
-
-designation_preds<-map(1:N_FOLDS, designation_cv)|>
-  bind_rows()
-designation_preds
-
-# Computing the RMSE across the folds 
-designation_models_summary<-designation_preds|>
-  pivot_longer(dp_pred:dp_tam_mlr_pred, names_to="model", values_to="test_pred")|>
-  group_by(model, cv_test_fold)|>
-  summarize(rmse=sqrt(mean((cv_test_actual-test_pred)^2)))
-
-designation_models_summary|>
-  group_by(model)|>
-  summarize(avg_cv_rmse=mean(rmse),
-            sd_rmse=sd(rmse),
-            k=n())|>
-  mutate(se_rmse=sd_rmse/sqrt(k),
-         lower_rmse=avg_cv_rmse-2*se_rmse,
-         upper_rmse=avg_cv_rmse+2*se_rmse)
-
-# Visualizing designation_cv results
-
-designation_models_summary|>
-  ggplot(aes(x=model, y=rmse))+
-  geom_point(size = 4) +
-  stat_summary(fun = mean, geom = "point", 
-               color = "red", size = 4) + 
-  stat_summary(fun.data = mean_se, geom = "errorbar", 
-               color = "red", width = 0.2)
-
 # ECDF Plots for certain teams
 
 ecdf_plots<-function(team_input){
@@ -352,234 +266,6 @@ single_percents<-bind_rows(single_percents_21, single_percents_22,
 mls_team_analysis<-mls_team_analysis|>
   left_join(single_percents, by="team_year")
 
-# Setting up advanced modeling cross-validation
-
-library(glmnet)
-set.seed(123)
-n_folds <- 5
-mls_team_analysis <- mls_team_analysis |>
-  mutate(folds = sample(rep(1:n_folds, length.out = n())))
-table(mls_team_analysis$folds)
-
-library(xgboost)
-# Excluding the 1st column
-
-model_columns_1_17 <- paste0(as.character(1:17), "th")  # "1st" through "17th"
-
-# Fixing corner cases for 1st, 2nd, 3rd 
-model_columns_1_17[1:3] <- c("1st", "2nd", "3rd")
-
-# Create the df for columns I need for the model
-advanced_model_df_1_17 <- mls_team_analysis |>
-  select(team_year, xgoal_difference, all_of(model_columns_1_17), folds)
-
-# Creating the cv function
-advanced_models_cv <- function(x){
-  cv_test_data <- advanced_model_df_1_17 |> filter(folds == x)
-  cv_train_data <- advanced_model_df_1_17 |> filter(folds != x)
-  cv_test_x <- as.matrix(select(cv_test_data, all_of(model_columns_1_17)))
-  cv_train_x <- as.matrix(select(cv_train_data, all_of(model_columns_1_17)))
-  cv_train_y<- cv_train_data$xgoal_difference
-  
-  lm_fit <- lm(xgoal_difference ~ . - 1, data = cv_train_data |> 
-                 select(xgoal_difference, all_of(model_columns_1_17)))
-  ridge_fit <- cv.glmnet(cv_train_x, cv_train_data$xgoal_difference, alpha = 0)
-  lasso_fit <- cv.glmnet(cv_train_x, cv_train_data$xgoal_difference, alpha = 1)
-  enet_fit  <- cv.glmnet(cv_train_x, cv_train_data$xgoal_difference, alpha = 0.5)
-  
-  xgb_train<-xgb.DMatrix(data=cv_train_x, label=cv_train_y)
-  xgb_test<-xgb.DMatrix(data=cv_test_x)
-  
-  xgb_fit <- xgboost(
-    data = xgb_train,
-    nrounds = 100,
-    objective = "reg:squarederror",
-    verbose = 0
-  )
-  
-  xgb_pred <- predict(xgb_fit, xgb_test)
-  
-  out <- tibble(
-    lm_pred    = predict(lm_fit, newdata = cv_test_data),
-    ridge_pred = as.numeric(predict(ridge_fit, newx = cv_test_x)),
-    lasso_pred = as.numeric(predict(lasso_fit, newx = cv_test_x)),
-    enet_pred  = as.numeric(predict(enet_fit, newx = cv_test_x)),
-    xgb_pred = xgb_pred,
-    test_actual = cv_test_data$xgoal_difference,
-    test_fold   = x
-  )
-  return(out)
-}
-
-# Running the cv across the 5 folds
-advanced_models_preds <- map(1:n_folds, advanced_models_cv) |>
-  bind_rows()
-
-advanced_models_summary <- advanced_models_preds |>
-  pivot_longer(lm_pred:xgb_pred, names_to = "model", values_to = "test_pred") |>
-  group_by(model, test_fold) |>
-  summarize(rmse = sqrt(mean((test_actual - test_pred)^2)), .groups= "drop")
-
-# getting out statistics for the models
-advanced_models_summary|>
-  group_by(model) |> 
-  summarize(avg_cv_rmse = mean(rmse),
-            sd_rmse = sd(rmse),
-            k = n()) |>
-  mutate(se_rmse = sd_rmse / sqrt(k),
-         lower_rmse = avg_cv_rmse - 2*se_rmse,
-         upper_rmse = avg_cv_rmse + 2*se_rmse)
-
-# Plotting results
-advanced_models_summary |>
-  ggplot(aes(x = model, y = rmse)) + 
-  geom_point(size = 4) +
-  stat_summary(fun = mean, geom = "point", 
-               color = "red", size = 4) + 
-  stat_summary(fun.data = mean_se, geom = "errorbar", 
-               color = "red", width = 0.2)
-# Finding the most important XGBoost variables
-X_full <- as.matrix(select(advanced_model_df_1_17, all_of(model_columns_1_17)))
-y_full <- advanced_model_df_1_17$xgoal_difference
-
-# Convert to DMatrix
-xgb_train_full <- xgb.DMatrix(data = X_full, label = y_full)
-
-# Train full XGBoost model
-xgb_fit_full <- xgboost(
-  data = xgb_train_full,
-  nrounds = 100,
-  objective = "reg:squarederror",
-  verbose = 0
-)
-
-# Get importance matrix
-xgb_importance <- xgb.importance(feature_names = model_columns_1_17, model = xgb_fit_full)
-
-# Plot
-xgb.plot.importance(xgb_importance, top_n = 15, rel_to_first = TRUE, 
-                    xlab = "Relative Importance", main = "XGBoost Feature Importance")
-
-xgb_importance |>
-  mutate(Feature = reorder(Feature, Gain)) |>
-  ggplot(aes(x = Feature, y = Gain)) +
-  geom_col(fill = "darkblue") +
-  coord_flip() +
-  labs(title = "XGBoost Feature Importance (Gain)",
-       x = "Player Tier",
-       y = "Importance (Gain)") +
-  theme_minimal()
-
-## Modeling again but excluding the 1st column instead
-library(xgboost)
-# Excluding the 1st column
-
-model_columns_2_18 <- paste0(as.character(2:18), "th")  # "1st" through "17th"
-
-# Fixing corner cases for 1st, 2nd, 3rd 
-model_columns_2_18[1:2] <- c("2nd", "3rd")
-
-# Create the df for columns I need for the model
-advanced_model_df_2_18 <- mls_team_analysis |>
-  select(team_year, xgoal_difference, all_of(model_columns_2_18), folds)
-
-# Creating the cv function
-advanced_models_cv <- function(x){
-  cv_test_data <- advanced_model_df_2_18 |> filter(folds == x)
-  cv_train_data <- advanced_model_df_2_18 |> filter(folds != x)
-  cv_test_x <- as.matrix(select(cv_test_data, all_of(model_columns_2_18)))
-  cv_train_x <- as.matrix(select(cv_train_data, all_of(model_columns_2_18)))
-  cv_train_y<- cv_train_data$xgoal_difference
-  
-  lm_fit <- lm(xgoal_difference ~ . - 1, data = cv_train_data |> 
-                 select(xgoal_difference, all_of(model_columns_2_18)))
-  ridge_fit <- cv.glmnet(cv_train_x, cv_train_data$xgoal_difference, alpha = 0)
-  lasso_fit <- cv.glmnet(cv_train_x, cv_train_data$xgoal_difference, alpha = 1)
-  enet_fit  <- cv.glmnet(cv_train_x, cv_train_data$xgoal_difference, alpha = 0.5)
-  
-  xgb_train<-xgb.DMatrix(data=cv_train_x, label=cv_train_y)
-  xgb_test<-xgb.DMatrix(data=cv_test_x)
-  
-  xgb_fit <- xgboost(
-    data = xgb_train,
-    nrounds = 100,
-    objective = "reg:squarederror",
-    verbose = 0
-  )
-  
-  xgb_pred <- predict(xgb_fit, xgb_test)
-  
-  out <- tibble(
-    lm_pred    = predict(lm_fit, newdata = cv_test_data),
-    ridge_pred = as.numeric(predict(ridge_fit, newx = cv_test_x)),
-    lasso_pred = as.numeric(predict(lasso_fit, newx = cv_test_x)),
-    enet_pred  = as.numeric(predict(enet_fit, newx = cv_test_x)),
-    xgb_pred = xgb_pred,
-    test_actual = cv_test_data$xgoal_difference,
-    test_fold   = x
-  )
-  return(out)
-}
-
-# Running the cv across the 5 folds
-advanced_models_preds <- map(1:n_folds, advanced_models_cv) |>
-  bind_rows()
-
-advanced_models_summary <- advanced_models_preds |>
-  pivot_longer(lm_pred:xgb_pred, names_to = "model", values_to = "test_pred") |>
-  group_by(model, test_fold) |>
-  summarize(rmse = sqrt(mean((test_actual - test_pred)^2)), .groups= "drop")
-
-# getting out statistics for the models
-advanced_models_summary|>
-  group_by(model) |> 
-  summarize(avg_cv_rmse = mean(rmse),
-            sd_rmse = sd(rmse),
-            k = n()) |>
-  mutate(se_rmse = sd_rmse / sqrt(k),
-         lower_rmse = avg_cv_rmse - 2*se_rmse,
-         upper_rmse = avg_cv_rmse + 2*se_rmse)
-
-# Plotting results
-advanced_models_summary |>
-  ggplot(aes(x = model, y = rmse)) + 
-  geom_point(size = 4) +
-  stat_summary(fun = mean, geom = "point", 
-               color = "red", size = 4) + 
-  stat_summary(fun.data = mean_se, geom = "errorbar", 
-               color = "red", width = 0.2)
-
-# Finding most important variables for XGBoost
-X_full <- as.matrix(select(advanced_model_df_2_18, all_of(model_columns_2_18)))
-y_full <- advanced_model_df_2_18$xgoal_difference
-
-# Convert to DMatrix
-xgb_train_full <- xgb.DMatrix(data = X_full, label = y_full)
-
-# Train full XGBoost model
-xgb_fit_full <- xgboost(
-  data = xgb_train_full,
-  nrounds = 100,
-  objective = "reg:squarederror",
-  verbose = 0
-)
-
-# Get importance matrix
-xgb_importance <- xgb.importance(feature_names = model_columns_2_18, model = xgb_fit_full)
-
-# Plot
-xgb.plot.importance(xgb_importance, top_n = 15, rel_to_first = TRUE, 
-                    xlab = "Relative Importance", main = "XGBoost Feature Importance")
-
-xgb_importance |>
-  mutate(Feature = reorder(Feature, Gain)) |>
-  ggplot(aes(x = Feature, y = Gain)) +
-  geom_col(fill = "darkblue") +
-  coord_flip() +
-  labs(title = "XGBoost Feature Importance (Gain)",
-       x = "Player Tier",
-       y = "Importance (Gain)") +
-  theme_minimal()
 
 # Modeling XGBoost including all columns
 
@@ -801,3 +487,519 @@ normalized_salaries<-normalized_salaries|>
 
 normalized_salaries|>
   arrange(desc(salary_diff))
+ggplot(aes())+
+  geom_histogram()
+
+
+ggplot(test_2024_results, aes(x = actual, y = predicted)) +
+  geom_point(color = "steelblue", size = 3, alpha = 0.7) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs. Actual xGD (2024)", x = "Actual xGD", y = "Predicted xGD") +
+  theme_minimal()
+
+# Cross-validation by year on all 5 models
+library(tidyverse)
+library(glmnet)
+library(xgboost)
+library(ggplot2)
+
+# 1. Add year column (extracted from team_year)
+advanced_model_df_1_18 <- advanced_model_df_1_18 |>
+  mutate(year = str_extract(team_year, "\\d{4}"))
+
+# 2. Define features
+model_columns_1_18 <- c("1st", "2nd", "3rd", paste0(4:18, "th"))
+model_columns_2_18<- c("2nd", "3rd", paste0(4:18, "th"))
+
+# 3. Split train/test
+set.seed(123)
+train_data <- advanced_model_df_1_18 |> filter(year %in% c("2021", "2022", "2023"))
+test_data  <- advanced_model_df_1_18 |> filter(year == "2024")
+
+train_x <- as.matrix(select(train_data, all_of(model_columns_1_18)))
+test_x  <- as.matrix(select(test_data, all_of(model_columns_1_18)))
+train_y <- train_data$xgoal_difference
+test_y  <- test_data$xgoal_difference
+
+lm_train_x <- as.matrix(select(train_data, all_of(model_columns_2_18)))
+lm_test_x  <- as.matrix(select(test_data, all_of(model_columns_2_18)))
+# 4. Fit models
+# Linear
+lm_fit <- lm(
+  xgoal_difference ~ .,
+  data = train_data |> select(xgoal_difference, all_of(model_columns_2_18))
+)
+
+# Ridge, Lasso, Elastic Net
+ridge_fit <- cv.glmnet(train_x, train_y, alpha = 0)
+lasso_fit <- cv.glmnet(train_x, train_y, alpha = 1)
+enet_fit  <- cv.glmnet(train_x, train_y, alpha = 0.5)
+
+# XGBoost
+xgb_train <- xgb.DMatrix(data = train_x, label = train_y)
+xgb_test  <- xgb.DMatrix(data = test_x)
+xgb_fit <- xgboost(
+  data = xgb_train,
+  nrounds = 100,
+  objective = "reg:squarederror",
+  subsample = 1,
+  colsample_bytree = 1,
+  seed = 123,  # fix this!
+  verbose = 0
+)
+
+# 5. Make predictions
+preds <- tibble(
+  year = test_data$year,
+  team_year = test_data$team_year,
+  actual = test_y,
+  lm_pred = predict(lm_fit, newdata = test_data |> select(all_of(model_columns_2_18))),
+  ridge_pred = as.numeric(predict(ridge_fit, newx = test_x, s = "lambda.min")),
+  lasso_pred = as.numeric(predict(lasso_fit, newx = test_x, s = "lambda.min")),
+  enet_pred  = as.numeric(predict(enet_fit, newx = test_x, s = "lambda.min")),
+  xgb_pred = predict(xgb_fit, xgb_test)
+)
+
+# 6. Calculate RMSE for each model on 2024
+rmse_2024 <- preds |>
+  pivot_longer(lm_pred:xgb_pred, names_to = "model", values_to = "prediction") |>
+  group_by(model) |>
+  summarize(
+    rmse_2024 = sqrt(mean((prediction - actual)^2)),
+    .groups = "drop"
+  )
+
+print(rmse_2024)
+
+summary(lm_fit)
+
+# Booststrapping to compare rmse's across more samples
+
+set.seed(123) 
+library(tidyverse)
+
+# Define RMSE function
+rmse <- function(actual, pred) sqrt(mean((actual - pred)^2))
+
+# Bootstrap
+n_boot <- 1000
+boot_rmses <- replicate(n_boot, {
+  sample_indices <- sample(1:nrow(preds), replace = TRUE)
+  sampled <- preds[sample_indices, ]
+  
+  c(
+    lm = rmse(sampled$actual, sampled$lm_pred),
+    ridge = rmse(sampled$actual, sampled$ridge_pred),
+    lasso = rmse(sampled$actual, sampled$lasso_pred),
+    enet = rmse(sampled$actual, sampled$enet_pred),
+    xgb = rmse(sampled$actual, sampled$xgb_pred)
+  )
+}, simplify = TRUE)
+
+# Convert to tibble
+boot_rmses_df <- as_tibble(t(boot_rmses)) |> 
+  mutate(iteration = 1:n()) |> 
+  pivot_longer(-iteration, names_to = "model", values_to = "rmse")
+
+# Summary stats
+boot_rmses_df |> group_by(model) |> 
+  summarize(mean_rmse = mean(rmse), sd_rmse = sd(rmse))
+
+# Plot RMSE distribution
+ggplot(boot_rmses_df, aes(x = rmse, fill = model)) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Bootstrapped RMSE Distributions", x = "RMSE", y = "Density") +
+  theme_minimal()
+
+summary(enet_fit)
+
+# Finding important variables with enet
+
+# 1. Extract coefficients from elastic net model at optimal lambda
+enet_coef <- coef(enet_fit, s = "lambda.min")
+
+enet_coef_mat <- as.matrix(enet_coef)
+str(enet_coef_mat)
+
+# 2. Convert sparse matrix to tidy data frame
+enet_coef_df <- enet_coef %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "variable") %>%
+  rename(coefficient = `s0`)
+
+# 3. Filter out intercept and zero coefficients
+enet_coef_filtered <- enet_coef_df %>%
+  filter(variable != "(Intercept)", coefficient != 0) %>%
+  arrange(desc(abs(coefficient)))
+
+# 4. Plot important variables
+ggplot(enet_coef_filtered, aes(x = reorder(variable, abs(coefficient)), y = coefficient)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Elastic Net: Most Important Roster Tiers",
+    x = "Roster Tier",
+    y = "Coefficient"
+  ) +
+  theme_minimal()
+
+# Adding error bars to plots
+library(glmnet)
+library(dplyr)
+
+set.seed(123)
+n_boot <- 1000
+boot_coefs <- vector("list", n_boot)
+
+for (i in 1:n_boot) {
+  boot_idx <- sample(1:nrow(train_x), replace = TRUE)
+  boot_x <- train_x[boot_idx, ]
+  boot_y <- train_y[boot_idx]
+  
+  boot_fit <- cv.glmnet(boot_x, boot_y, alpha = 0.5)
+  boot_coef <- as.matrix(coef(boot_fit, s = "lambda.min"))
+  boot_coefs[[i]] <- boot_coef
+}
+
+# Combine into matrix
+coef_mat <- do.call(cbind, boot_coefs)
+
+# Convert to summary dataframe
+coef_df <- as.data.frame(coef_mat)
+coef_df$variable <- rownames(coef_mat)
+
+# Get mean and sd across bootstrap samples
+coef_summary <- coef_df %>%
+  pivot_longer(-variable, names_to = "iteration", values_to = "coefficient") %>%
+  group_by(variable) %>%
+  summarize(
+    mean_coef = mean(coefficient),
+    sd_coef = sd(coefficient),
+    .groups = "drop"
+  )
+
+# Filter out intercept and near-zero mean coefficients
+coef_plot_df <- coef_summary %>%
+  filter(variable != "(Intercept)", abs(mean_coef) > 1e-6) %>%
+  arrange(desc(abs(mean_coef)))
+
+# Plot
+library(ggplot2)
+
+ggplot(coef_plot_df, aes(x = reorder(variable, abs(mean_coef)), y = mean_coef)) +
+  geom_col(fill = "steelblue") +
+  geom_errorbar(
+    aes(ymin = mean_coef - sd_coef, ymax = mean_coef + sd_coef),
+    width = 0.3,
+    color = "black"
+  ) +
+  coord_flip() +
+  labs(
+    title = "Elastic Net: Coefficient Estimates with Bootstrapped Error Bars",
+    x = "Roster Tier",
+    y = "Mean Coefficient (± SD)"
+  ) +
+  theme_minimal()
+
+
+# Finding optimal salary percentages with elastic net model
+
+# 1. Model input columns
+model_columns_1_18 <- c("1st", "2nd", "3rd", paste0(4:18, "th"))
+
+# 2. Objective function: NEGATIVE prediction (since constrOptim minimizes)
+enet_objective <- function(percentages) {
+  # Enforce hard constraint on sum and value range
+  if (any(percentages < 0) || any(percentages > 1) || abs(sum(percentages) - 1) > 1e-6) {
+    return(1e6)
+  }
+  
+  # Create named input row
+  input_matrix <- matrix(percentages, nrow = 1)
+  colnames(input_matrix) <- model_columns_1_18
+  
+  # Predict using elastic net
+  pred <- predict(enet_fit, newx = input_matrix, s = "lambda.min")
+  
+  return(as.numeric(pred))  # negative for maximization
+}
+
+# 3. Initial guess (even split)
+init <- rep(1 / length(model_columns_1_18), length(model_columns_1_18))
+
+# 4. Constraints for constrOptim
+ui_matrix <- rbind(
+  diag(18),          # percentages >= 0
+  -diag(18),         # percentages <= 1
+  rep(1, 18)         # sum == 1
+)
+ci_vector <- c(
+  rep(0, 18),        # lower bounds
+  rep(-1, 18),       # upper bounds (negated)
+  1                  # sum == 1
+)
+
+# 5. Run optimizer
+res <- constrOptim(
+  theta = init,
+  f = enet_objective,
+  grad = NULL,
+  ui = ui_matrix,
+  ci = ci_vector
+)
+
+# 6. Results
+optimal_allocation <- tibble(
+  tier = model_columns_1_18,
+  percentage = res$par
+)
+
+predicted_xG_diff <- -res$value  # un-negate to get actual prediction
+
+# 7. Output
+print(optimal_allocation |> arrange(desc(percentage)))
+cat("\nPredicted xG difference with optimal allocation:", predicted_xG_diff, "\n")
+
+
+# Bucketing salaries into 6 groups of 3
+six_buckets_21<-top18_21|>
+  mutate(tier=case_when(
+    rank_18<=3 ~ "1-3",
+    rank_18<=6 ~ "4-6",
+    rank_18<=9 ~ "7-9",
+    rank_18<=12 ~ "10-12",
+    rank_18<=15 ~ "13-15",
+    TRUE ~ "16-18"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top18_21 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)|>
+  select(team_year, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+
+six_buckets_22<-top18_22|>
+  mutate(tier=case_when(
+    rank_18<=3 ~ "1-3",
+    rank_18<=6 ~ "4-6",
+    rank_18<=9 ~ "7-9",
+    rank_18<=12 ~ "10-12",
+    rank_18<=15 ~ "13-15",
+    TRUE ~ "16-18"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top18_22 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)|>
+  select(team_year, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+
+six_buckets_23<-top18_23|>
+  mutate(tier=case_when(
+    rank_18<=3 ~ "1-3",
+    rank_18<=6 ~ "4-6",
+    rank_18<=9 ~ "7-9",
+    rank_18<=12 ~ "10-12",
+    rank_18<=15 ~ "13-15",
+    TRUE ~ "16-18"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top18_23 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)|>
+  select(team_year, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+
+six_buckets_24<-top18_24|>
+  mutate(tier=case_when(
+    rank_18<=3 ~ "1-3",
+    rank_18<=6 ~ "4-6",
+    rank_18<=9 ~ "7-9",
+    rank_18<=12 ~ "10-12",
+    rank_18<=15 ~ "13-15",
+    TRUE ~ "16-18"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top18_24 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)|>
+  select(team_year, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+
+six_buckets<-bind_rows(six_buckets_21, six_buckets_22,
+                       six_buckets_23, six_buckets_24)
+mls_team_analysis<-mls_team_analysis|>
+  left_join(six_buckets, by="team_year")
+
+six_buckets_df<-mls_team_analysis|>
+  select(team_year, year, xgoal_difference, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+model_columns_1_6 <- c("1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+model_columns_2_6<- c( "4-6", "7-9", "10-12", "13-15", "16-18")
+
+
+set.seed(123)
+train_data <- six_buckets_df|> filter(year %in% c("2021", "2022", "2023"))
+test_data  <- six_buckets_df |> filter(year == "2024")
+
+train_x <- as.matrix(select(train_data, all_of(model_columns_1_6)))
+test_x  <- as.matrix(select(test_data, all_of(model_columns_1_6)))
+train_y <- train_data$xgoal_difference
+test_y  <- test_data$xgoal_difference
+
+lm_train_x <- as.matrix(select(train_data, all_of(model_columns_2_6)))
+lm_test_x  <- as.matrix(select(test_data, all_of(model_columns_1_6)))
+
+                        
+# Linear
+lm_fit <- lm(
+  xgoal_difference ~ .,
+  data = train_data |> select(xgoal_difference, all_of(model_columns_2_6))
+)
+
+# Ridge, Lasso, Elastic Net
+ridge_fit <- cv.glmnet(train_x, train_y, alpha = 0)
+lasso_fit <- cv.glmnet(train_x, train_y, alpha = 1)
+enet_fit  <- cv.glmnet(train_x, train_y, alpha = 0.5)
+
+# XGBoost
+xgb_train <- xgb.DMatrix(data = train_x, label = train_y)
+xgb_test  <- xgb.DMatrix(data = test_x)
+xgb_fit <- xgboost(
+  data = xgb_train,
+  nrounds = 100,
+  objective = "reg:squarederror",
+  subsample = 1,
+  colsample_bytree = 1,
+  seed = 123,
+  verbose = 0
+)
+
+# 5. Make predictions
+preds <- tibble(
+  year = test_data$year,
+  team_year = test_data$team_year,
+  actual = test_y,
+  lm_pred = predict(lm_fit, newdata = test_data |> select(all_of(model_columns_2_6))),
+  ridge_pred = as.numeric(predict(ridge_fit, newx = test_x, s = "lambda.min")),
+  lasso_pred = as.numeric(predict(lasso_fit, newx = test_x, s = "lambda.min")),
+  enet_pred  = as.numeric(predict(enet_fit, newx = test_x, s = "lambda.min")),
+  xgb_pred = predict(xgb_fit, xgb_test)
+)
+
+# 6. Calculate RMSE for each model on 2024
+rmse_2024 <- preds |>
+  pivot_longer(lm_pred:xgb_pred, names_to = "model", values_to = "prediction") |>
+  group_by(model) |>
+  summarize(
+    rmse_2024 = sqrt(mean((prediction - actual)^2)),
+    .groups = "drop"
+  )
+
+print(rmse_2024)
+
+summary(lm_fit)
+
+set.seed(123) 
+library(tidyverse)
+
+# Define RMSE function
+rmse <- function(actual, pred) sqrt(mean((actual - pred)^2))
+
+# Bootstrap
+n_boot <- 1000
+boot_rmses <- replicate(n_boot, {
+  sample_indices <- sample(1:nrow(preds), replace = TRUE)
+  sampled <- preds[sample_indices, ]
+  
+  c(
+    lm = rmse(sampled$actual, sampled$lm_pred),
+    ridge = rmse(sampled$actual, sampled$ridge_pred),
+    lasso = rmse(sampled$actual, sampled$lasso_pred),
+    enet = rmse(sampled$actual, sampled$enet_pred),
+    xgb = rmse(sampled$actual, sampled$xgb_pred)
+  )
+}, simplify = TRUE)
+
+# Convert to tibble
+boot_rmses_df <- as_tibble(t(boot_rmses)) |> 
+  mutate(iteration = 1:n()) |> 
+  pivot_longer(-iteration, names_to = "model", values_to = "rmse")
+
+# Summary stats
+boot_rmses_df |> group_by(model) |> 
+  summarize(mean_rmse = mean(rmse), sd_rmse = sd(rmse))
+
+# Plot RMSE distribution
+ggplot(boot_rmses_df, aes(x = rmse, fill = model)) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Bootstrapped RMSE Distributions", x = "RMSE", y = "Density") +
+  theme_minimal()
+
+grid <- expand.grid(
+  leftmiddle3_pct = seq(1, 50, by = .5),
+  middle3_pct     = seq(1, 20, by = .5),
+  rightmiddle3_pct= seq(1, 20, by = .5),
+  bottom3_pct     = seq(1, 20, by = .5)
+) |>
+  mutate(top3_pct = 100 - leftmiddle3_pct - middle3_pct - rightmiddle3_pct - bottom3_pct) |>
+  filter(top3_pct >= 30 & top3_pct<=80) |>    # Optional: exclude invalid negative percentages
+  as_tibble()
+
+grid_model <- grid |>
+  rename(
+    `4-6` = leftmiddle3_pct,
+    `7-9` = middle3_pct,
+    `10-12` = rightmiddle3_pct,
+    `13-15` = bottom3_pct,
+    `16-18` = top3_pct
+  )
+
+grid$predicted_xG_diff <- predict(lm_fit, newdata = grid_model)
+
+best_combo <- grid |>
+  arrange(desc(predicted_xG_diff)) |>
+  dplyr::slice(1)
+
+print(best_combo)
+
+# plotting confidence intervals for linear model
+coefs <- summary(lm_fit)$coefficients
+conf_int <- confint(lm_fit)
+
+coef_df <- as.data.frame(coefs)
+coef_df$term <- rownames(coef_df)
+conf_df <- as.data.frame(conf_int)
+names(conf_df) <- c("conf_low", "conf_high")
+conf_df$term <- rownames(conf_df)
+
+# Merge
+plot_df <- merge(coef_df, conf_df, by = "term")
+
+ggplot(plot_df |> filter(term != "(Intercept)"), aes(x = term, y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf_low, ymax = conf_high), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "95% Confidence Intervals for Coefficients (Linear Model)",
+       x = "Predictor", y = "Estimate") +
+  theme_minimal()

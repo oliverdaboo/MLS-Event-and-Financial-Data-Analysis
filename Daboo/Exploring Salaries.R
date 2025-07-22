@@ -140,7 +140,6 @@ mls_team_stats_24|>
 
 library(scales)
 library(ggrepel)
-install.packages("ggrepel")
 
 mls_team_stats_24<-mls_team_stats_24|>
   mutate(quadrant=case_when(

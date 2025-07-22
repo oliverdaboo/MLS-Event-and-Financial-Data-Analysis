@@ -722,6 +722,15 @@ fwd_def_spend_ratio_lm<-lm(mls_team_analysis$ga_per_10k~
 tidy(fwd_def_spend_ratio_lm, conf.int=TRUE, conf.level = .95)
 glance(fwd_def_spend_ratio_lm)
 
+mls_team_analysis|>
+  ggplot(aes(fwd_def_spend_ratio, ga_per_10k))+
+  geom_point(size=4, color="red")+
+  geom_smooth(method="lm", se= FALSE, color="blue")+
+  theme_minimal()+
+  labs(title="The more teams spend on their defense, the more efficient they perform",
+      x="Forward to Defense Spend Ratio",
+       y="Goals Added per $10k")
+
 fwd_def_spend_ratio_ga_lm<-lm(mls_team_analysis$total_goals_added_for~
                              mls_team_analysis$fwd_def_spend_ratio)
 tidy(fwd_def_spend_ratio_ga_lm, conf.int=TRUE, conf.level = .95)
@@ -734,6 +743,12 @@ total_fwd_def_spend_ratio_lm<-lm(mls_team_analysis$ga_per_10k~
                              mls_team_analysis$total_fwd_def_spend_ratio)
 tidy(total_fwd_def_spend_ratio_lm, conf.int=TRUE, conf.level = .95)
 glance(total_fwd_def_spend_ratio_lm)
+
+mls_team_analysis|>
+  summarise(mean(total_guaranteed_compensation))
+
+mls_team_analysis|>
+  summarise(mean(fwd_def_spend_ratio))
 
 # k-means clustering teams
 library(cluster)
@@ -1371,3 +1386,19 @@ mls_team_analysis|>
   theme_minimal()+
   labs(title="G+ has a Strong Linear Relationship with Goal Difference", 
        x="Total G+ For", y="Goal Difference")
+
+library(scales)
+library(ggrepel)
+x_mid <- mean(mls_team_analysis$avg_guaranteed_compensation)
+y_mid <- mean(mls_team_analysis$xgoal_difference)
+mls_team_analysis|>
+  ggplot(aes(avg_guaranteed_compensation, xgoal_difference, color=salary_xG_clusters_log))+
+  geom_point(size=3)+
+  labs(title="Average Team Spending vs. xG Difference", 
+       subtitle="MLS 2021-2024 Seasons",
+       x="Average Guaranteed Compensation",
+       y="xG Difference",
+       color="Cluster")+
+  theme_light()+
+  theme(plot.title=element_text(hjust=.5, face="bold", size=20),
+        plot.subtitle = element_text(hjust=.5, face="bold", size=15))
