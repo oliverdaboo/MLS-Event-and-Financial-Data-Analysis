@@ -727,9 +727,10 @@ mls_team_analysis|>
   geom_point(size=4, color="red")+
   geom_smooth(method="lm", se= FALSE, color="blue")+
   theme_minimal()+
-  labs(title="The more teams spend on their defense, the more efficient they perform",
+  labs(title="There is a significant relationship for the more that teams spend on their \n offense proportionally to their defense, the less efficient they are",
       x="Forward to Defense Spend Ratio",
-       y="Goals Added per $10k")
+       y="Goals Added per $10k")+
+  theme(plot.title=element_text(hjust=.5, face="bold", size=18))
 
 fwd_def_spend_ratio_ga_lm<-lm(mls_team_analysis$total_goals_added_for~
                              mls_team_analysis$fwd_def_spend_ratio)

@@ -920,6 +920,7 @@ print(rmse_2024)
 
 summary(lm_fit)
 
+
 set.seed(123) 
 library(tidyverse)
 
@@ -954,7 +955,8 @@ boot_rmses_df |> group_by(model) |>
 ggplot(boot_rmses_df, aes(x = rmse, fill = model)) +
   geom_density(alpha = 0.4) +
   labs(title = "Bootstrapped RMSE Distributions", x = "RMSE", y = "Density") +
-  theme_minimal()
+  theme_minimal()+
+  theme(plot.title=element_text(size=20, face="bold", hjust=.5))
 
 grid <- expand.grid(
   leftmiddle3_pct = seq(1, 50, by = .5),
@@ -1003,3 +1005,28 @@ ggplot(plot_df |> filter(term != "(Intercept)"), aes(x = term, y = Estimate)) +
   labs(title = "95% Confidence Intervals for Coefficients (Linear Model)",
        x = "Predictor", y = "Estimate") +
   theme_minimal()
+
+# Finding each team's indivudal xG prediction for 2024
+lm_predictions <- predict(lm_fit, newdata = test_data |> select(all_of(model_columns_2_6)))
+
+# Combine with test_data and calculate residuals
+lm_results <- test_data |>
+  mutate(
+    predicted_xG_diff = lm_predictions,
+    residual = xgoal_difference - predicted_xG_diff
+  ) |>
+  select(team_year, xgoal_difference, predicted_xG_diff, residual)
+
+top_accurate_lm_preds <- lm_results |>
+  mutate(abs_residual = abs(residual)) |>
+  arrange(abs_residual) |>
+  slice_head(n = 30)  # Change to `n = 5` if you want top 5
+
+print(top_accurate_lm_preds, n=30)
+
+lm_model <- lm(
+  xgoal_difference ~ .,
+  data = mls_team_analysis |> select(xgoal_difference, all_of(model_columns_2_6))
+)
+
+summary(lm_model)
