@@ -868,12 +868,12 @@ train_y <- train_data$xgoal_difference
 test_y  <- test_data$xgoal_difference
 
 lm_train_x <- as.matrix(select(train_data, all_of(model_columns_2_6)))
-lm_test_x  <- as.matrix(select(test_data, all_of(model_columns_1_6)))
+lm_test_x  <- as.matrix(select(test_data, all_of(model_columns_2_6)))
 
                         
 # Linear
 lm_fit <- lm(
-  xgoal_difference ~ .,
+  xgoal_difference ~ . ,
   data = train_data |> select(xgoal_difference, all_of(model_columns_2_6))
 )
 
@@ -995,7 +995,7 @@ conf_df <- as.data.frame(conf_int)
 names(conf_df) <- c("conf_low", "conf_high")
 conf_df$term <- rownames(conf_df)
 
-# Merge
+# Merging
 plot_df <- merge(coef_df, conf_df, by = "term")
 
 ggplot(plot_df |> filter(term != "(Intercept)"), aes(x = term, y = Estimate)) +
@@ -1006,7 +1006,7 @@ ggplot(plot_df |> filter(term != "(Intercept)"), aes(x = term, y = Estimate)) +
        x = "Predictor", y = "Estimate") +
   theme_minimal()
 
-# Finding each team's indivudal xG prediction for 2024
+# Finding each team's individual xG prediction for 2024
 lm_predictions <- predict(lm_fit, newdata = test_data |> select(all_of(model_columns_2_6)))
 
 # Combine with test_data and calculate residuals
@@ -1025,8 +1025,9 @@ top_accurate_lm_preds <- lm_results |>
 print(top_accurate_lm_preds, n=30)
 
 lm_model <- lm(
-  xgoal_difference ~ .,
-  data = mls_team_analysis |> select(xgoal_difference, all_of(model_columns_2_6))
+  xgoal_difference ~ . + total_guaranteed_compensation,
+  data = mls_team_analysis |> select(xgoal_difference, all_of(model_columns_2_6), total_guaranteed_compensation)
 )
 
 summary(lm_model)
+

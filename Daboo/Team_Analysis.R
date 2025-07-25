@@ -698,8 +698,6 @@ mls_cluster_analysis<-mls_team_analysis |>
     n_teams = n()
   ) 
 
-mls_team_analysis|>
-  filter(salary_xG_clusters_log==2)
 
 
 # Linear regression predicting def stats from def spending
@@ -1390,8 +1388,7 @@ mls_team_analysis|>
 
 library(scales)
 library(ggrepel)
-x_mid <- mean(mls_team_analysis$avg_guaranteed_compensation)
-y_mid <- mean(mls_team_analysis$xgoal_difference)
+
 mls_team_analysis|>
   ggplot(aes(avg_guaranteed_compensation, xgoal_difference, color=salary_xG_clusters_log))+
   geom_point(size=3)+

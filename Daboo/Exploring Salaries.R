@@ -1,6 +1,8 @@
 # installing ASA
 install.packages("itscalledsoccer")
 library(itscalledsoccer)
+library(tidyverse)
+library(dplyr)
 
 itscalledsoccer::AmericanSoccerAnalysis
 
@@ -83,13 +85,13 @@ mls_team_xG<-asa$get_team_xgoals(leagues="mls",
                                  season_name=2024,
                                  stage_name="Regular Season")
 mls_teams_24<-mls_teams|>
-  slice(-6, -25)
+  dplyr::slice(-6, -25)
 
 mls_team_stats_24<-mls_team_salaries_2024|>
   left_join(mls_teams_24|>
               select(team_id, team=team_abbreviation), by="team_id")|>
   arrange(team)|>
-  slice(-30)
+  dplyr::slice(-30)
 
 mls_team_stats_24<-mls_team_stats_24|>
   left_join(mls_team_xG,
@@ -127,17 +129,6 @@ mls_team_stats_24<-mls_team_stats_24|>
   left_join(wide_goals_added, by="team")
 
 library(ggplot2)
-mls_team_stats_24|>
-  ggplot(aes(xgoal_difference, total_guaranteed_compensation))+
-  geom_point()+
-  geom_text(aes(label=team), hjust=1, vjust=.5, size=3)+
-  geom_hline(yintercept = mean(mls_team_stats_24$total_guaranteed_compensation),
-             linetype="dashed")+
-  geom_vline(xintercept = mean(mls_team_stats_24$xgoal_difference),
-             linetype="dashed")+
-  theme_light()+
-  theme(plot.title=element_text(hjust=.5, face="bold"))
-
 library(scales)
 library(ggrepel)
 
@@ -159,6 +150,7 @@ y_mid <- mean(mls_team_stats_24$xgoal_difference)
 mls_team_stats_24|>
   ggplot(aes(avg_guaranteed_compensation, xgoal_difference, color=quadrant))+
   geom_point(size=3)+
+  geom_smooth(method="lm", se= FALSE, color="blue")+
   geom_text_repel(aes(label=team), size=3, max.overlaps=Inf,
                   color="black", bg.color="white", bg.r=.15)+
   geom_hline(yintercept = mean(mls_team_stats_24$xgoal_difference),

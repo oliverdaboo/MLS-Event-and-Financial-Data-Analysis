@@ -1,0 +1,1143 @@
+---
+title: "Maximizing Roster Efficiency in the MLS"
+author:
+  - Oliver Daboo
+  - Otis Birnbaum
+date: "July 25, 2025"
+toc: true
+format:
+  html:
+    theme: cosmo
+    html-math-method: katex
+    self-contained: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Introduction
+
+# Data
+
+```{r}
+#| label: load-common
+#| include: false
+#| message: false
+#| warning: false
+
+source("mls_team_stats_24.R")
+source("salaries_code.R")
+source("team_analysis_code.R")
+source("salary_ga_total.R")
+source("salary_ga_total_1000_2m.R")
+```
+
+```{r}
+#| label: Figure 1
+#| echo: false
+#| cache: true
+#| fig-width: 10
+#| fig-height: 7
+#| fig-cap: "Figure 1. Scatter plot showing each team’s in the 2024 seasons and their average salary spend across their roster compared to their xG difference. The dashed lines show the means of each variable, and are used to group the teams into four quadrants. The blue line is the linear regression line for the relationship, and shows there is no correlation between team spending and performance."
+
+library(tidyverse)
+library(dplyr)
+
+
+
+library(ggplot2)
+library(scales)
+library(ggrepel)
+
+mls_team_stats_24<-mls_team_stats_24|>
+  mutate(quadrant=case_when(
+    xgoal_difference>=mean(xgoal_difference) & 
+      avg_guaranteed_compensation>=mean(avg_guaranteed_compensation)~"High Spend/High xG",
+    xgoal_difference<mean(xgoal_difference) & 
+      avg_guaranteed_compensation >=mean(avg_guaranteed_compensation)~"High Spend/Low xG",
+    xgoal_difference>=mean(xgoal_difference) & 
+      avg_guaranteed_compensation<mean(avg_guaranteed_compensation)~"Low Spend/High xG",
+    xgoal_difference<mean(xgoal_difference) & 
+      avg_guaranteed_compensation<mean(avg_guaranteed_compensation)~"Low Spend/Low xG",
+  ))
+
+x_mid <- mean(mls_team_stats_24$avg_guaranteed_compensation)
+y_mid <- mean(mls_team_stats_24$xgoal_difference)
+
+mls_team_stats_24|>
+  ggplot(aes(avg_guaranteed_compensation, xgoal_difference, color=quadrant))+
+  geom_point(size=3)+
+  geom_smooth(method="lm", se= FALSE, color="blue")+
+  geom_text_repel(aes(label=team), size=3, max.overlaps=Inf,
+                  color="black", bg.color="white", bg.r=.15)+
+  geom_hline(yintercept = mean(mls_team_stats_24$xgoal_difference),
+             linetype="dashed", alpha=.5)+
+  geom_vline(xintercept = mean(mls_team_stats_24$avg_guaranteed_compensation),
+             linetype="dashed", alpha=.5)+
+  scale_x_continuous(labels= comma)+
+  labs(title="Average Team Spending vs. xG Difference", 
+       subtitle="2024 MLS Regular Season",
+       x="Average Guaranteed Compensation",
+       y="xG Difference",
+       color="Quadrant")+
+  annotate("text", x = x_mid - 150000, y = y_mid + 15, label = "Efficient \n Spending", fontface="italic", size=6) +
+  annotate("text", x = x_mid + 300000, y = y_mid + 15, label = "Expected Strong \n Performance", fontface="italic", size=6) +
+  annotate("text", x = x_mid - 150000, y = y_mid - 20, label = "Expected Poor \n Performance", fontface="italic", size=6) +
+  annotate("text", x = x_mid + 300000, y = y_mid - 20, label = "Inefficient \n Spending", fontface="italic", size=6) +
+  theme_light()+
+  theme(plot.title=element_text(hjust=.5, face="bold", size=20), 
+        plot.subtitle = element_text(hjust=.5, face="bold", size=15))
+
+```
+
+```{r}
+#| label: Figure 2
+#| echo: false
+#| cache: true
+#| fig-width: 10
+#| fig-height: 7
+#| fig-cap: "Figure 2. ECDF Plot showing how the roster spread of Inter Miami in 2024 was very top-heavy"
+
+all_salaries_24|>
+  filter(team=="MIA")|>
+  ggplot(aes(x=guaranteed_compensation))+
+  stat_ecdf()+
+  geom_rug(aes(color=guaranteed_compensation), alpha=.5)+
+  scale_x_continuous(labels = scales::label_comma())+
+  scale_color_continuous(labels = label_comma()) +
+  theme_minimal()+
+  labs(title="ECDF For Inter Miami Salary 2024",
+       x="Guaranteed Compensation",
+       color="Guaranteed Compensation")+
+  theme(plot.title=element_text(size=18, face="bold", hjust=.5))
+```
+
+```{r}
+#| label: Figure 3
+#| echo: false
+#| cache: true
+#| fig-width: 10
+#| fig-height: 7
+#| fig-cap: "Figure 3. ECDF Plot showing how the roster spread of New York Red Bulls in 2021 was relatively even."
+
+all_salaries_21|>
+  filter(team=="NYRB")|>
+  ggplot(aes(x=guaranteed_compensation))+
+  stat_ecdf()+
+  geom_rug(aes(color=guaranteed_compensation), alpha=.5)+
+  scale_x_continuous(labels = scales::label_comma())+
+  scale_color_continuous(labels = label_comma()) +
+  theme_minimal()+
+  labs(title="ECDF For New York Red Bulls Salary 2021",
+       x="Guaranteed Compensation",
+       color="Guaranteed Compensation")+
+  theme(plot.title=element_text(size=18, face="bold", hjust=.5))
+```
+
+```{r}
+#| label: Figure 4
+#| echo: false
+#| cache: true
+#| fig-cap: "Figure 4. Histogram of salaries with $2 million reference line showing where we cut off observations."
+
+
+## Histogram of salaries with $2 million reference line
+salary_ga_total |> 
+  ggplot(aes(x = guaranteed_compensation)) +
+  geom_histogram(fill = "steelblue", color = "white", bins = 50, alpha = 0.8) +
+  geom_vline(xintercept = 2000000,
+             linetype = "dashed", color = "red", size = 1) +
+  labs(
+    title = "Distribution of Guaranteed Compensation in MLS",
+    subtitle = "Dashed red line indicates the $2M salary threshold",
+    x = "Guaranteed Compensation (USD)",
+    y = "Number of Players",
+    caption = "Source: MLSPA Public Salary Data"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 13),
+    plot.caption = element_text(size = 10, hjust = 0),
+    axis.title = element_text(face = "bold"))
+
+```
+
+![Figure 5. American Soccer Analysis' Explanation on their G+ Metric](images/g+-2.png)
+
+```{r}
+#| label: Table 1
+#| echo: false
+#| cache: true
+#| fig-cap: "Table 1. The best MLS players from 2021-2024 based on their goals added per 90 minutes played. This top 5 proves that goals added is a valuable metric."
+library(gt)
+library(dplyr)
+
+top_players <- tibble::tibble(
+  `Player, Year` = c("Lionel Messi, 2024", 
+                  "Cucho Hernandez, 2024", 
+                  "Adam Buksa, 2021", 
+                  "Riqui Puig, 2024", 
+                  "Cucho Hernandez, 2023"),
+  Club = c("Inter Miami", 
+           "Columbus Crew", 
+           "New England Revolution", 
+           "LA Galaxy", 
+           "Columbus Crew"),
+  Position = c("W", "ST", "ST", "CM", "ST"),
+  Age = c(37, 25, 25, 25, 24),
+  Nationality = c("Argentina", "Colombia", "Poland", "Spain", "Colombia"),
+  `G+ Per 90 min.` = c(0.572, 0.471, 0.455, 0.455, 0.451)
+)
+
+top_players |>
+  gt() |>
+  tab_header(
+    title = md("**The Top 5 MLS Players 2021–2024 Based on G+ Per 90 min.**")
+  ) |>
+  tab_style(
+    style = cell_borders(
+      sides = "all",
+      color = "black",
+      weight = px(1)
+    ),
+    locations = list(
+      cells_body(columns = everything()),
+      cells_column_labels(columns = everything())
+    )
+  ) |>
+  data_color(
+    columns = everything(),
+    rows = `Player, Year` == "Lionel Messi, 2024",
+    colors = "pink"
+  ) |>
+  data_color(
+    columns = everything(),
+    rows = grepl("Cucho Hernandez", `Player, Year`),
+    colors = "yellow"
+  ) |>
+  data_color(
+    columns = everything(),
+    rows = `Player, Year` == "Adam Buksa, 2021",
+    colors = "red"
+  ) |>
+  data_color(
+    columns = everything(),
+    rows = `Player, Year` == "Riqui Puig, 2024",
+    colors = "darkblue"
+  )
+```
+
+```{r}
+#| label: Table 2
+#| echo: false
+#| cache: true
+#| fig-cap: "Table 2. The most efficient MLS players from 2021-2024 based on their goals added per 90 minutes played per $10k they are paid."
+library(gt)
+library(dplyr)
+
+# Create the data
+efficient_players <- tibble::tibble(
+  Player_Year = c(
+    "Patrick Agyemang, 2024",
+    "Célio Pompeu, 2023",
+    "Tani Oluwaseyi, 2024",
+    "Jacob Murrell, 2024",
+    "Fredy Montero, 2021"
+  ),
+  Club = c(
+    "Charlotte FC",
+    "St. Louis City",
+    "Minnesota United",
+    "D.C. United",
+    "Seattle Sounders"
+  ),
+  Position = c("ST", "W", "ST", "ST", "ST"),
+  Age = c(23, 23, 24, 20, 34),
+  Nationality = c("USA", "Brazil", "Canada", "USA", "Colombia"),
+  GA_Per_90_Per_10k = c(0.0475, 0.0462, 0.0411, 0.0369, 0.0350)
+)
+
+# Build styled gt table
+efficient_players |>
+  gt() |>
+  tab_header(
+    title = md("**The Top 5 Most Efficient Player Seasons in the MLS in the last 4 Years**")
+  ) |>
+  cols_label(
+    Player_Year = "Player, Year"
+  ) |>
+  tab_style(
+    style = cell_borders(
+      sides = "all",
+      color = "black",
+      weight = px(1)
+    ),
+    locations = list(
+      cells_body(columns = everything()),
+      cells_column_labels(columns = everything())
+    )
+  ) |>
+  data_color(
+    columns = everything(),
+    rows = Player_Year == "Patrick Agyemang, 2024",
+    color = "#3b70b2"
+  ) |>
+  data_color(
+    columns = everything(),
+    rows = Player_Year == "Célio Pompeu, 2023",
+    color = "#a0263b"
+  ) |>
+  data_color(
+    columns = everything(),
+    rows = Player_Year == "Tani Oluwaseyi, 2024",
+    color = "#a3c0d8"
+  ) |>
+  data_color(
+    columns = everything(),
+    rows = Player_Year == "Jacob Murrell, 2024",
+    color = "red"
+  ) |>
+  data_color(
+    columns = everything(),
+    rows = Player_Year == "Fredy Montero, 2021",
+    color = "#00ff00"
+  )
+```
+
+# Methods
+
+# Results
+
+```{r}
+#| label: Figure 6
+#| echo: false
+#| cache: true
+#| fig-width: 10
+#| fig-height: 7
+#| fig-cap: "Figure 6. Shows the relationship between how teams proportionally split up their salary between offensive and dfensive players, and their performance efficiency. Each red dot is a team from the MLS from 2021-2024, and the blue line is the linear regression line."
+
+
+mls_team_analysis|>
+  ggplot(aes(fwd_def_spend_ratio, ga_per_10k))+
+  geom_point(size=4, color="red")+
+  geom_smooth(method="lm", se= FALSE, color="blue")+
+  theme_minimal()+
+  labs(title="There is a significant relationship for the more that teams spend on their \n offense proportionally to their defense, the less efficient they are",
+       x="Forward to Defense Spend Ratio",
+       y="Goals Added per $10k")+
+  theme(plot.title=element_text(hjust=.5, face="bold", size=18))
+
+
+
+```
+
+```{r}
+#| label: Figure 7
+#| echo: false
+#| cache: true
+#| fig-width: 10
+#| fig-height: 7
+#| fig-cap: "Figure 7. Generalized Additive Models showing the relationship between a player's salary and performance, split by their position."
+library(mgcv)
+
+salary_group <- salary_ga_total_1000_2m |> 
+  filter(
+    mlspa_release %in% c("2024-09-13", "2023-09-15", "2022-09-02", "2021-09-30"),
+    guaranteed_compensation <= 2000000
+  )
+
+##position names
+position_names <- c(
+  CB = "Center Back",
+  FB = "Fullback",
+  DM = "Defensive Midfielder",
+  CM = "Central Midfielder",
+  ST = "Striker",
+  AM = "Attacking Midfielder",
+  W  = "Winger"
+)
+positions <- names(position_names)
+
+par(mfrow = c(3, 3), mar = c(2, 2, 2, 1), oma = c(7, 5, 5, 2))  # bottom, left, top, right
+
+##Loop
+for (i in 1:6) {
+  position_data <- salary_group |> filter(general_position == positions[i])
+  
+  gam_model <- gam(
+    ga_per_90 ~ s(guaranteed_compensation) + age + region_group,
+    family = gaussian,
+    method = "REML",
+    data = position_data
+  )
+  
+  plot(
+    gam_model,
+    main = position_names[positions[i]],
+    cex.main = 1.5,
+    xlab = "", ylab = "",
+    shade = TRUE,
+    col = "steelblue",
+    shade.col = "lightblue",
+    seWithMean = TRUE,
+    rug = TRUE
+  )
+}
+
+##Center Winger
+plot.new()  
+
+position_data <- salary_group |> filter(general_position == "W")
+
+gam_model <- gam(
+  ga_per_90 ~ s(guaranteed_compensation) + age + region_group,
+  family = gaussian,
+  method = "REML",
+  data = position_data
+)
+
+plot(
+  gam_model,
+  main = position_names["W"],
+  cex.main = 1.5,
+  xlab = "", ylab = "",
+  shade = TRUE,
+  col = "steelblue",
+  shade.col = "lightblue",
+  seWithMean = TRUE,
+  rug = TRUE
+)
+
+plot.new()  
+
+
+mtext("Guaranteed Compensation", side = 1, outer = TRUE, line = 3, cex = 1.2, font = 2)
+mtext("Goals Added per 90", side = 2, outer = TRUE, line = 3, cex = 1.2, font = 2)
+mtext("Salary Has a Positive Linear,
+      but Slightly Diminishing Effect on GA per 90", 
+      side = 3, outer = TRUE, line = -.2, cex = 2, font = 2)
+mtext("Note: Model includes players who made less than 2 million dollars and played more than a thousand minutes.",
+      side = 1, outer = TRUE, line = 5, cex = 0.9, font = 3)
+
+
+par(mfrow = c(1, 1), oma = c(0, 0, 0, 0), mar = c(5, 4, 4, 2))
+```
+
+# Discussion
+
+# Appendix
+
+```{r}
+#| label: Table 3 
+library(broom)
+salary_xg_lm<-lm(xgoal_difference~avg_guaranteed_compensation, data=mls_team_stats_24)
+
+
+salary_xg_lm|>
+  tidy()|>
+  knitr::kable(digits = 5,
+               col.names = c("Term", "Estimate", "SE", "t", "p"),
+  caption = "Table 3. Linear Model Summary Predicting each Team's xG Difference by their Average Salary")
+```
+
+```{r}
+#| label: Table 4 
+library(broom)
+ga_points_lm<-lm(points~total_goals_added_for, data=mls_team_analysis)
+ga_points_lm|>
+  tidy()|>
+  knitr::kable(digits = 5,
+               col.names = c("Term", "Estimate", "SE", "t", "p"),
+  caption = "Table 4. Linear Model Summary Predicting each Team's Points by their Total Goals Added For")
+```
+
+```{r}
+#| label: Table 5 
+cor_val <- cor(mls_team_analysis$total_goals_added_for, mls_team_analysis$points, use = "complete.obs")
+
+tibble(
+  "Variable 1" = "total_goals_added_for",
+  "Variable 2" = "points",
+  Correlation = round(cor_val, 2)
+) |>
+  knitr::kable(caption = "Table 5. Correlation Between G+ and Points")
+```
+
+```{r}
+#| label: Table 6 
+library(broom)
+fwd_def_spend_ratio_lm<-lm(ga_per_10k~fwd_def_spend_ratio, data=mls_team_analysis)
+
+fwd_def_spend_ratio_lm|>
+  tidy()|>
+  knitr::kable(digits = 5,
+               col.names = c("Term", "Estimate", "SE", "t", "p"),
+  caption = "Table 6. Linear Model Summary Predicting each Team's Goals Added Per $10k by their Forward to Defense Spend Ratio")
+```
+
+```{r}
+#| label: Table 7
+
+library(glmnet)
+library(xgboost)
+library(broom)
+library(glue)
+
+# asa<-AmericanSoccerAnalysis$new()
+# write_rds(asa, "asa.rds")
+asa <- read_rds("asa.rds")
+
+## constructing the main data set
+#mls_teams<-asa$get_teams(leagues="mls")
+
+# mls_teams<-mls_teams|>
+#   dplyr::slice(-6, -25)
+# write_rds(mls_teams, "mls_teams.rds")
+mls_teams <- read_rds("mls_teams.rds")
+
+# mls_team_salaries_24<-asa$get_team_salaries(leagues = "mls",
+#                                             season_name=2024)
+# 
+# write_rds(mls_team_salaries_24, "mls_team_salaries_24.rds")
+mls_team_salaries_24 <- read_rds("mls_team_salaries_24.rds")
+
+# mls_team_xG_24<-asa$get_team_xgoals(leagues="mls",
+#                                     season_name=2024)
+# write_rds(mls_team_xG_24, "mls_team_xG_24.rds")
+mls_team_xG_24 <- read_rds("mls_team_xG_24.rds")
+
+mls_teams_24<-mls_teams|>
+  left_join(mls_team_salaries_24|>
+              select(team_id, count_players, total_guaranteed_compensation,
+                     avg_guaranteed_compensation, median_guaranteed_compensation,
+                     std_dev_guaranteed_compensation), by="team_id")
+mls_teams_24<-mls_teams_24|>
+  left_join(mls_team_xG_24,
+            by="team_id")
+
+mls_teams_24<-mls_teams_24|>
+  select(-team_id, -team_name, -team_short_name)
+
+mls_teams_24<-mls_teams_24|>
+  mutate(year=2024)
+
+# mls_team_salaries_23<-asa$get_team_salaries(leagues = "mls",
+#                                             season_name=2023)
+# 
+# write_rds(mls_team_salaries_23, "mls_team_salaries_23.rds")
+mls_team_salaries_23 <- read_rds("mls_team_salaries_23.rds")
+
+# mls_team_xG_23<-asa$get_team_xgoals(leagues="mls",
+#                                     season_name=2023)
+# 
+# write_rds(mls_team_xG_23, "mls_team_xG_23.rds")
+mls_team_xG_23 <- read_rds("mls_team_xG_23.rds")
+
+mls_teams_23<-mls_teams|>
+  left_join(mls_team_salaries_23|>
+              select(team_id, count_players, total_guaranteed_compensation,
+                     avg_guaranteed_compensation, median_guaranteed_compensation,
+                     std_dev_guaranteed_compensation), by="team_id")
+mls_teams_23<-mls_teams_23|>
+  left_join(mls_team_xG_23,
+            by="team_id")
+
+mls_teams_23<-mls_teams_23|>
+  select(-team_id, -team_name, -team_short_name)
+
+mls_teams_23<-mls_teams_23|>
+  mutate(year=2023)
+
+# mls_team_salaries_22<-asa$get_team_salaries(leagues = "mls",
+#                                             season_name=2022)
+# 
+# write_rds(mls_team_salaries_22, "mls_team_salaries_22.rds")
+mls_team_salaries_22 <- read_rds("mls_team_salaries_22.rds")
+
+# mls_team_xG_22<-asa$get_team_xgoals(leagues="mls",
+#                                     season_name=2022)
+# 
+# write_rds(mls_team_xG_22, "mls_team_xG_22.rds")
+mls_team_xG_22 <- read_rds("mls_team_xG_22.rds")
+
+mls_teams_22<-mls_teams|>
+  left_join(mls_team_salaries_22|>
+              select(team_id, count_players, total_guaranteed_compensation,
+                     avg_guaranteed_compensation, median_guaranteed_compensation,
+                     std_dev_guaranteed_compensation), by="team_id")
+mls_teams_22<-mls_teams_22|>
+  left_join(mls_team_xG_22,
+            by="team_id")
+
+mls_teams_22<-mls_teams_22|>
+  select(-team_id, -team_name, -team_short_name)
+
+mls_teams_22<-mls_teams_22|>
+  mutate(year=2022)
+
+mls_teams_22<-mls_teams_22|>
+  dplyr::slice(-27)
+
+# mls_team_salaries_21<-asa$get_team_salaries(leagues = "mls",
+#                                             season_name=2021)
+# 
+# write_rds(mls_team_salaries_21, "mls_team_salaries_21.rds")
+mls_team_salaries_21 <- read_rds("mls_team_salaries_21.rds")
+
+# mls_team_xG_21<-asa$get_team_xgoals(leagues="mls",
+#                                     season_name=2021)
+# 
+# write_rds(mls_team_xG_21, "mls_team_xG_21.rds")
+mls_team_xG_21 <- read_rds("mls_team_xG_21.rds")
+
+mls_teams_21<-mls_teams|>
+  left_join(mls_team_salaries_21|>
+              select(team_id, count_players, total_guaranteed_compensation,
+                     avg_guaranteed_compensation, median_guaranteed_compensation,
+                     std_dev_guaranteed_compensation), by="team_id")
+mls_teams_21<-mls_teams_21|>
+  left_join(mls_team_xG_21,
+            by="team_id")
+
+mls_teams_21<-mls_teams_21|>
+  select(-team_id, -team_name, -team_short_name)
+
+mls_teams_21<-mls_teams_21|>
+  mutate(year=2021)
+
+mls_teams_21<-mls_teams_21|>
+  dplyr::slice(-4, -27)
+
+mls_team_analysis<-bind_rows(mls_teams_21, mls_teams_22,
+                             mls_teams_23, mls_teams_24)
+
+mls_team_analysis<-mls_team_analysis|>
+  rename(team=team_abbreviation)
+
+mls_team_analysis<-mls_team_analysis|>
+  relocate(year, .before=2)
+
+mls_team_analysis<-mls_team_analysis|>
+  mutate(team_year = paste(team, year, sep = "_")) |>
+  relocate(team_year)
+
+# mls_players<-asa$get_players(leagues="mls")
+# 
+# write_rds(mls_players, "mls_players.rds")
+mls_players <- read_rds("mls_players.rds")
+
+# all_salaries_2024<-asa$get_player_salaries(leagues = "mls", 
+#                                            start_date="2024-09-13", 
+#                                            end_date="2024-09-14")
+# 
+# write_rds(all_salaries_2024, "all_salaries_2024.rds")
+all_salaries_2024 <- read_rds("all_salaries_2024.rds")
+
+all_salaries_24<-all_salaries_2024|>
+  left_join(mls_players|>
+              select(player_id, player_name), by="player_id")|>
+  left_join(mls_teams|>
+              select(team_id, team=team_abbreviation), by="team_id")
+
+all_salaries_24<-all_salaries_24|>
+  mutate(year = 2024,
+         team_year = paste(team, year, sep = "_")) |>
+  relocate(team_year)
+
+# all_salaries_2023<-asa$get_player_salaries(leagues = "mls", 
+#                                            start_date="2023-09-15", 
+#                                            end_date="2023-09-16")
+# 
+# write_rds(all_salaries_2023, "all_salaries_2023.rds")
+all_salaries_2023 <- read_rds("all_salaries_2023.rds")
+
+all_salaries_23<-all_salaries_2023|>
+  left_join(mls_players|>
+              select(player_id, player_name), by="player_id")|>
+  left_join(mls_teams|>
+              select(team_id, team=team_abbreviation), by="team_id")
+
+all_salaries_23<-all_salaries_23|>
+  mutate(year = 2023,
+         team_year = paste(team, year, sep = "_")) |>
+  relocate(team_year)
+
+# all_salaries_2022<-asa$get_player_salaries(leagues = "mls",                                   season_name=2022)
+# 
+# write_rds(all_salaries_2022, "all_salaries_2022.rds")
+all_salaries_2022 <- read_rds("all_salaries_2022.rds")
+
+all_salaries_22<-all_salaries_2022|>
+  left_join(mls_players|>
+              select(player_id, player_name), by="player_id")|>
+  left_join(mls_teams|>
+              select(team_id, team=team_abbreviation), by="team_id")
+
+all_salaries_22<-all_salaries_22|>
+  filter((team == "MTL" & mlspa_release == "2022-04-15") |
+           (team != "MTL" & mlspa_release == "2022-09-02"))
+
+all_salaries_22<-all_salaries_22|>
+  mutate(year = 2022,
+         team_year = paste(team, year, sep = "_")) |>
+  relocate(team_year)
+
+# all_salaries_2021<-asa$get_player_salaries(leagues = "mls", 
+#                                            start_date="2021-09-30", 
+#                                            end_date="2021-10-01")
+# 
+# write_rds(all_salaries_2021, "all_salaries_2021.rds")
+all_salaries_2021 <- read_rds("all_salaries_2021.rds")
+
+all_salaries_21<-all_salaries_2021|>
+  left_join(mls_players|>
+              select(player_id, player_name), by="player_id")|>
+  left_join(mls_teams|>
+              select(team_id, team=team_abbreviation), by="team_id")
+
+all_salaries_21<-all_salaries_21|>
+  mutate(year = 2021,
+         team_year = paste(team, year, sep = "_")) |>
+  relocate(team_year)
+
+top18_21<-all_salaries_21|>
+  group_by(team_year)|>
+  arrange(desc(guaranteed_compensation), .bygroup=TRUE)|>
+  slice_head(n=18)|>
+  mutate(rank_18=row_number())|>
+  ungroup()
+
+top18_22<-all_salaries_22|>
+  group_by(team_year)|>
+  arrange(desc(guaranteed_compensation), .bygroup=TRUE)|>
+  slice_head(n=18)|>
+  mutate(rank_18=row_number())|>
+  ungroup()
+
+top18_23<-all_salaries_23|>
+  group_by(team_year)|>
+  arrange(desc(guaranteed_compensation), .bygroup=TRUE)|>
+  slice_head(n=18)|>
+  mutate(rank_18=row_number())|>
+  ungroup()
+
+top18_24<-all_salaries_24|>
+  group_by(team_year)|>
+  arrange(desc(guaranteed_compensation), .bygroup=TRUE)|>
+  slice_head(n=18)|>
+  mutate(rank_18=row_number())|>
+  ungroup()
+
+# Bucketing salaries into 6 groups of 3
+six_buckets_21<-top18_21|>
+  mutate(tier=case_when(
+    rank_18<=3 ~ "1-3",
+    rank_18<=6 ~ "4-6",
+    rank_18<=9 ~ "7-9",
+    rank_18<=12 ~ "10-12",
+    rank_18<=15 ~ "13-15",
+    TRUE ~ "16-18"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top18_21 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)|>
+  select(team_year, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+
+six_buckets_22<-top18_22|>
+  mutate(tier=case_when(
+    rank_18<=3 ~ "1-3",
+    rank_18<=6 ~ "4-6",
+    rank_18<=9 ~ "7-9",
+    rank_18<=12 ~ "10-12",
+    rank_18<=15 ~ "13-15",
+    TRUE ~ "16-18"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top18_22 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)|>
+  select(team_year, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+
+six_buckets_23<-top18_23|>
+  mutate(tier=case_when(
+    rank_18<=3 ~ "1-3",
+    rank_18<=6 ~ "4-6",
+    rank_18<=9 ~ "7-9",
+    rank_18<=12 ~ "10-12",
+    rank_18<=15 ~ "13-15",
+    TRUE ~ "16-18"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top18_23 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)|>
+  select(team_year, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+
+six_buckets_24<-top18_24|>
+  mutate(tier=case_when(
+    rank_18<=3 ~ "1-3",
+    rank_18<=6 ~ "4-6",
+    rank_18<=9 ~ "7-9",
+    rank_18<=12 ~ "10-12",
+    rank_18<=15 ~ "13-15",
+    TRUE ~ "16-18"))|>
+  group_by(team_year, tier)|>
+  summarise(tier_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop") |>
+  left_join(
+    top18_24 |>
+      group_by(team_year) |>
+      summarise(team_total_comp = sum(guaranteed_compensation, na.rm = TRUE), .groups = "drop"),
+    by = "team_year"
+  ) |>
+  mutate(percent_of_team_total = (tier_comp / team_total_comp) * 100)|>
+  select(team_year, tier, percent_of_team_total) |>
+  pivot_wider(names_from = tier, values_from = percent_of_team_total)|>
+  select(team_year, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+
+six_buckets<-bind_rows(six_buckets_21, six_buckets_22,
+                       six_buckets_23, six_buckets_24)
+mls_team_analysis<-mls_team_analysis|>
+  left_join(six_buckets, by="team_year")
+
+
+six_buckets_df<-mls_team_analysis|>
+  select(team_year, year, xgoal_difference, "1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+model_columns_1_6 <- c("1-3", "4-6", "7-9", "10-12", "13-15", "16-18")
+model_columns_2_6<- c( "4-6", "7-9", "10-12", "13-15", "16-18")
+
+set.seed(123)
+train_data <- six_buckets_df|> filter(year %in% c("2021", "2022", "2023"))
+test_data  <- six_buckets_df |> filter(year == "2024")
+
+train_x <- as.matrix(select(train_data, all_of(model_columns_1_6)))
+test_x  <- as.matrix(select(test_data, all_of(model_columns_1_6)))
+train_y <- train_data$xgoal_difference
+test_y  <- test_data$xgoal_difference
+
+lm_train_x <- as.matrix(select(train_data, all_of(model_columns_2_6)))
+lm_test_x  <- as.matrix(select(test_data, all_of(model_columns_2_6)))
+
+# Linear
+lm_fit <- lm(
+  xgoal_difference ~ .,
+  data = train_data |> select(xgoal_difference, all_of(model_columns_2_6))
+)
+
+# Ridge, Lasso, Elastic Net
+ridge_fit <- cv.glmnet(train_x, train_y, alpha = 0)
+lasso_fit <- cv.glmnet(train_x, train_y, alpha = 1)
+enet_fit  <- cv.glmnet(train_x, train_y, alpha = 0.5)
+
+# XGBoost
+xgb_train <- xgb.DMatrix(data = train_x, label = train_y)
+xgb_test  <- xgb.DMatrix(data = test_x)
+xgb_fit <- xgboost(
+  data = xgb_train,
+  nrounds = 100,
+  objective = "reg:squarederror",
+  subsample = 1,
+  colsample_bytree = 1,
+  seed = 123,
+  verbose = 0
+)
+
+# 5. Make predictions
+preds <- tibble(
+  year = test_data$year,
+  team_year = test_data$team_year,
+  actual = test_y,
+  lm_pred = predict(lm_fit, newdata = test_data |> select(all_of(model_columns_2_6))),
+  ridge_pred = as.numeric(predict(ridge_fit, newx = test_x, s = "lambda.min")),
+  lasso_pred = as.numeric(predict(lasso_fit, newx = test_x, s = "lambda.min")),
+  enet_pred  = as.numeric(predict(enet_fit, newx = test_x, s = "lambda.min")),
+  xgb_pred = predict(xgb_fit, xgb_test)
+)
+
+# 6. Calculate RMSE for each model on 2024
+rmse_2024 <- preds |>
+  pivot_longer(lm_pred:xgb_pred, names_to = "model", values_to = "prediction") |>
+  group_by(model) |>
+  summarize(
+    rmse_2024 = sqrt(mean((prediction - actual)^2)),
+    .groups = "drop"
+  )
+
+# Defining the RMSE function
+rmse <- function(actual, pred) sqrt(mean((actual - pred)^2))
+
+# Bootstraping
+n_boot <- 1000
+boot_rmses <- replicate(n_boot, {
+  sample_indices <- sample(1:nrow(preds), replace = TRUE)
+  sampled <- preds[sample_indices, ]
+  
+  c(
+    lm = rmse(sampled$actual, sampled$lm_pred),
+    ridge = rmse(sampled$actual, sampled$ridge_pred),
+    lasso = rmse(sampled$actual, sampled$lasso_pred),
+    enet = rmse(sampled$actual, sampled$enet_pred),
+    xgb = rmse(sampled$actual, sampled$xgb_pred)
+  )
+}, simplify = TRUE)
+
+# Converting to tibble
+boot_rmses_df <- as_tibble(t(boot_rmses)) |> 
+  mutate(iteration = 1:n()) |> 
+  pivot_longer(-iteration, names_to = "model", values_to = "rmse")
+
+# Summary stats
+boot_rmses_df |>
+  group_by(model) |>
+  summarize(
+    Mean_RMSE = mean(rmse),
+    SD_RMSE = sd(rmse),
+    .groups = "drop"
+  ) |>
+  knitr::kable(
+    digits = 2,
+    col.names = c("Model", "Mean RMSE", "SD"),
+    caption = "Table 7. Bootstrapped RMSE Summary"
+  )
+```
+
+```{r}
+#| label: Figure 8
+#| cache: true
+#| fig-width: 10
+#| fig-height: 7
+#| fig-cap: "Figure 8. Showing the bootstrapped RMSE distributions for the five different models tested to predict a teams 2024 performance based on their salary spread. "
+# Plotting the RMSE distribution
+ggplot(boot_rmses_df, aes(x = rmse, fill = model)) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Bootstrapped RMSE Distributions", x = "RMSE", y = "Density") +
+  theme_minimal()+
+  theme(plot.title=element_text(size=20, face="bold", hjust=.5))
+```
+
+```{r}
+#| label: Table 8
+lm_fit|>
+  tidy()|>
+  knitr::kable(digits = 2,
+               col.names = c("Term", "Estimate", "SE", "t", "p"),
+  caption = "Table 8. Linear Model Summary")
+
+model_info <- glance(lm_fit)
+
+# Print values below
+cat(glue("
+
+Adjusted R-squared: {round(model_info$adj.r.squared, 3)}
+Model p-value: {scales::pvalue(model_info$p.value)}
+"))
+```
+
+```{r}
+#| label: Table 9
+position_lm_results<-salary_ga_total_1000_2m |> 
+  group_by(general_position) |>
+  do(tidy(lm(ga_per_90  ~ guaranteed_compensation, data = .)))
+
+library(knitr)
+library(dplyr)
+
+# Format and display as a nice table
+position_lm_results |>
+  rename(
+    Term = term,
+    Estimate = estimate,
+    SE = std.error,
+    t = statistic,
+    p = p.value
+  ) |>
+  mutate(across(c(Estimate, SE, t, p), ~ round(.x, 5))) |>
+  kable(
+    digits = 5,
+    col.names = c("Position", "Term", "Estimate", "SE", "t", "p"),
+    caption = "Table 9. Linear Model Summary Predicting Goals Added Per $10k of Compensation by Position"
+  )
+```
+
+```{r}
+#| label: Table 10
+library(broom)
+library(dplyr)
+library(knitr)
+  salary_ga_total_1000_2m <- salary_ga_total_1000_2m |> 
+  mutate(general_position = factor(general_position,
+                               levels = c("FB",
+                                          "CB",
+                                          "CM",
+                                          "DM",
+                                          "ST",
+                                          "W",
+                                          "AM"))) |>
+  mutate(region_group = factor(region_group,
+                               levels = c("Domestic",
+                                          "South America",
+                                          "Central America/Caribbean",
+                                          "Europe",
+                                          "Africa",
+                                          "Asia/Oceania")))
+total_lm_1 <- lm(guaranteed_compensation ~ age + general_position + region_group,  data =   salary_ga_total_1000_2m)
+comp_model_tidy<-tidy(total_lm_1, conf.int = TRUE)
+
+comp_model_glance<-glance(total_lm_1)
+
+comp_model_tidy |>
+  rename(
+    Term = term,
+    Estimate = estimate,
+    SE = std.error,
+    t = statistic,
+    p = p.value,
+    CI_Low = conf.low,
+    CI_High = conf.high
+  ) |>
+  mutate(across(c(Estimate, SE, t, p, CI_Low, CI_High), ~ round(.x, 5))) |>
+  kable(
+    digits = 5,
+    col.names = c("Term", "Estimate", "SE", "t", "p", "95% CI Low", "95% CI High"),
+    caption = "Table 10. Linear Model Coefficients Predicting Guaranteed Compensation"
+  )
+```
+
+```{r}
+#| label: Table 11
+
+comp_model_glance |>
+  mutate(across(everything(), ~ round(.x, 5))) |>
+  kable(
+    caption = "Table 11. Model Fit Statistics for Compensation Model"
+  )
+
+```
+
+```{r}
+#| label: Table 12
+
+library(broom)
+library(dplyr)
+library(knitr)
+total_lm_2 <- salary_ga_total_1000_2m |> 
+    lm(ga_per_90 ~ age + general_position + region_group,  data = _)
+lm_2_tidy<-tidy(total_lm_2 , conf.int = TRUE)
+lm_2_glance<-glance(total_lm_2 )
+
+lm_2_tidy |>
+  rename(
+    Term = term,
+    Estimate = estimate,
+    SE = std.error,
+    t = statistic,
+    p = p.value,
+    CI_Low = conf.low,
+    CI_High = conf.high
+  ) |>
+  mutate(across(c(Estimate, SE, t, p, CI_Low, CI_High), ~ round(.x, 5))) |>
+  kable(
+    digits = 5,
+    col.names = c("Term", "Estimate", "SE", "t", "p", "95% CI Low", "95% CI High"),
+    caption = "Table 12. Linear Model Coefficients Predicting Guaranteed Compensation per 90 minutes"
+  )
+```
+
+```{r}
+#| label: Table 13
+
+lm_2_glance |>
+  mutate(across(everything(), ~ round(.x, 5))) |>
+  kable(
+    caption = "Table 13. Model Fit Statistics for Predicting Guaranteed Compensation per 90 minutes"
+  )
+
+```
+
+```{r}
+#| label: Table 14
+library(broom)
+library(dplyr)
+library(knitr)
+ total_lm_3 <- salary_ga_total_1000_2m |> 
+    lm(ga_per_90_per10k ~ age + general_position + region_group,  data = _)
+lm_3_tidy<-tidy(total_lm_3, conf.int = TRUE)
+lm_3_glance<-glance(total_lm_3 )
+
+lm_3_tidy |>
+  rename(
+    Term = term,
+    Estimate = estimate,
+    SE = std.error,
+    t = statistic,
+    p = p.value,
+    CI_Low = conf.low,
+    CI_High = conf.high
+  ) |>
+  mutate(across(c(Estimate, SE, t, p, CI_Low, CI_High), ~ round(.x, 5))) |>
+  kable(
+    digits = 5,
+    col.names = c("Term", "Estimate", "SE", "t", "p", "95% CI Low", "95% CI High"),
+    caption = "Table 14. Linear Model Coefficients Predicting Guaranteed Compensation per 90 minutes per $10k"
+  )
+```
+
+```{r}
+#| label: Table 15
+
+lm_3_glance |>
+  mutate(across(everything(), ~ round(.x, 5))) |>
+  kable(
+    caption = "Table 15. Model Fit Statistics for Predicting Guaranteed Compensation per 90 minutes per $10k"
+  )
+```
+
+```{r}
+#| label: Figure 9
+#| fig-cap: "Figure 9. Generalized Additive Model showing a parabolic relationship between a player's age and efficiency."
+  library(mgcv)
+  age_ga_per10k__gam_2m <- gam(ga_per_90_per10k ~ s(age) + general_position + region_group,
+                                 family = gaussian,
+                                 method = "REML", 
+                                 data = salary_ga_total_1000_2m)
+
+ 
+  par(mar = c(5, 5, 4, 2)) 
+  
+  # Plot 
+  plot(
+    age_ga_per10k__gam_2m,
+    main = "Age's Smile Like Effect on Contract Value",
+    xlab = "Age",
+    ylab = "GA per 90 per $10K",
+    col = "darkred",
+    shade = TRUE,
+    shade.col = "mistyrose",
+    seWithMean = TRUE,
+    rug = TRUE,
+    cex.main = 1.6,   
+    cex.lab = 1.4,
+    cex.axis = 1.2    
+  )
+
+```
