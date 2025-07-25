@@ -18,7 +18,21 @@ execute:
 
 # Introduction
 
+The United States' top soccer division, Major League Soccer (MLS), is the only major professional soccer league in the world that has a salary cap. The league began in 1996 with just 10 teams and a cap of \$1.2 million, but now, in its 30th season, it has grown to 30 teams, and the cap has increased by 500% to nearly \$6 million. While teams, through the use of various salary mechanisms, including Designated Players, General Allocation Money, Targeted Allocation Money, and Under-22 Initiative players, can spend far more than this, the cap still has enormous implications for MLS teams.
+
+The most consequential implication of the cap is the parity it creates in year-to-year league standings. That is, the gap in team performance between the best team and the worst team is comparatively smaller in the MLS than in other soccer leagues around the world. There is no “big six”, like in the English Premier League, a phrase commonly used to describe its six highest spending and (mostly) best performing teams. For example, the LA Galaxy, who are the 2024 MLS Cup champions, are also, at the time of writing, sitting in last place only a season later. The cap, in the Galaxy's case, is the culprit, as it makes it hard for teams to keep good players after success, because success means raising salaries, which the cap won't allow.
+
+Another possible effect of the salary cap on MLS teams is a decoupling of salary spend and team performance. In almost every other league in the world, team salary spend is incredibly predictive of team performance. In *Soccernomics*, arguably the most important book written that uses rigorous empirical methods to answer questions in soccer, its authors, Stefan Szymanski and Simon Kuper, demonstrated via a linear regression model that variation in wage bills explained a staggering 90 percent of the variation in English Premier League team performance from the years 2011 to 2020. In contrast (see results section below), this correlation between team salary spending and success is essentially non-existent in the MLS. Some argue that this is partially due to the salary cap forcing suboptimal spending on certain types of players via the mechanisms mentioned above. 
+
+Regardless of why, the salary cap’s effects on parity and the lack of a relationship between spending and performance puts more pressure on both relatively high and low spending MLS teams to construct rosters in the most efficient way possible. For higher spending teams, this pressure stems from the fact that their ability to outspend their opponents is nowhere near the guarantee of winning that it is in other leagues. Thus, clever spending, not just high spending, is needed for success. For poorer teams, there are few leagues in the world where they have such an ability to compete. Thus, with efficient spending, it is still possible for them to win trophies. 
+
+The question naturally follows: how can teams use their financial resources most efficiently? That is the question this paper will attempt to answer. From a team-wide perspective, we will examine how teams should optimally spread their salary from their top-paid player to their 18th man,  and if they yield greater performance from investing in their defense or offense. On the micro, player level, we will look at three main attributes: position, age, and nationality to determine whether any categories produce systemic market failures. This research builds off similar but different work done by Kuper and Szymanski in Chapter 2 of *Soccernomics*, where they looked at similar problems of salary spread and of valuing age, nationalities, and positions. Given their axiom of wages' close relationship to success, they focused these questions on transfer market inefficiencies. Since wages’ effects on team performance are almost non-existent in the MLS, we will focus our questions on the wage bill and individual contracts. Answering all these questions, hopefully, will lead us to recommendations for MLS general managers on how an efficient MLS Cup-winning roster should be built.
+
 # Data
+
+Our analysis involved two separate datasets, one at the team level and the other at the player level, each with its own metric for evaluating performance. The first dataset has team-level statistics, where each row is an MLS team from a given season through 2021-2024. Columns have basic stats like goals for and against, shots for and against, their total salary spend, the standard deviation of their salary spend, etc. It also contains data on a team’s expected goals (xG) for and against, and the difference between the two. xG, a gold standard metric in soccer analytics, assigns a value between 0 and 1 to every shot based on the probability that it would have been a goal. The difference between this xG value for every shot a team takes and every shot they face is the team’s xG difference. 
+
+xG difference is the metric we will be using to evaluate a team’s performance. We chose this metric because it accounts for two types of team performance-based variance. The first being the variance associated with whether a shot goes in or not, which is accounted for by assigning shots a value based on their probability of going in, as we discussed above. The second is that it accounts for the game-by-game variance associated with whether a team tends to lose a few games by a lot and win a lot of games by a little, or win a few games by a lot and lose a lot of games by a little throughout a season. Each of these scenarios might result in a team producing and conceding a similar amount of xG, but having dramatically different point outcomes due to the spread of that xG. xG difference accounts for this. Thus, teams that are the most efficient are the ones that have a high xG difference and a low salary spend. Figure 1 shows all the MLS teams from the 2024 season and their xG differential compared to the average salary they are paying each player.
 
 ```{r}
 #| label: load-common
@@ -37,8 +51,8 @@ source("salary_ga_total_1000_2m.R")
 #| label: Figure 1
 #| echo: false
 #| cache: true
-#| fig-width: 10
-#| fig-height: 7
+#| fig-width: 8
+#| fig-height: 6
 #| fig-cap: "Figure 1. Scatter plot showing each team’s in the 2024 seasons and their average salary spend across their roster compared to their xG difference. The dashed lines show the means of each variable, and are used to group the teams into four quadrants. The blue line is the linear regression line for the relationship, and shows there is no correlation between team spending and performance."
 
 library(tidyverse)
@@ -91,12 +105,16 @@ mls_team_stats_24|>
 
 ```
 
+Figure 1 shows that there is no correlation between how much a team spends and its performance. Results of running that linear model can be found in Table 3 in the appendix. This shows how competitive the MLS is and goes against what is seen in other leagues, as shown in *Soccernomics*, thus giving every team a shot to perform well in the MLS, even if they don’t have as much money to spend. 
+
+During our exploratory data analysis phase, we found a large variation in the spread of how teams paid their players. Some teams paid 2 or 3 players a lot of money, and the rest very little. Figure 2 shows this idea with Inter Miami in 2024, which had the largest standard deviation of salary in the last four seasons.\
+
 ```{r}
 #| label: Figure 2
 #| echo: false
 #| cache: true
-#| fig-width: 10
-#| fig-height: 7
+#| fig-width: 8
+#| fig-height: 6
 #| fig-cap: "Figure 2. ECDF Plot showing how the roster spread of Inter Miami in 2024 was very top-heavy"
 
 all_salaries_24|>
@@ -113,12 +131,14 @@ all_salaries_24|>
   theme(plot.title=element_text(size=18, face="bold", hjust=.5))
 ```
 
+This ECDF plot shows how the majority of Inter Miami’s players are paid roughly the same low salary compared to their top two players. This explains a top-heavy salary structure, which we will look at to see if it’s a predictor of better team performance. Some other teams spread out their pay equally across the roster. Figure 3 shows this idea with the New York Red Bulls in 2021, which had the smallest standard deviation of salary in the last four seasons.
+
 ```{r}
 #| label: Figure 3
 #| echo: false
 #| cache: true
-#| fig-width: 10
-#| fig-height: 7
+#| fig-width: 8
+#| fig-height: 6
 #| fig-cap: "Figure 3. ECDF Plot showing how the roster spread of New York Red Bulls in 2021 was relatively even."
 
 all_salaries_21|>
@@ -134,6 +154,12 @@ all_salaries_21|>
        color="Guaranteed Compensation")+
   theme(plot.title=element_text(size=18, face="bold", hjust=.5))
 ```
+
+The vast differences between this ECDF plot for the New York Red Bulls and the Inter Miami plot are clear. The Red Bulls' top three players are paid slightly more than the rest of the team, but there is a much more even distribution of salary allocation compared to Inter Miami. 
+
+The second dataset was the player-level dataset, where each row was a player in the corresponding season from 2021 to 2024. This data set filtered out players who played fewer than a thousand minutes. We chose 1,000 minutes as our threshold, as it sat slightly below the mean number of minutes played, but was still high enough that we felt it captured enough data to make meaningful, statistically significant conclusions on how much these players contributed. 1,000 minutes is the equivalent of playing a little more than 11 90-minute games, which we deemed to be substantial for analysis. 
+
+We also choose to filter out players who earned more than 2 million dollars in guaranteed compensation. We did this using the standard logic of eliminating outliers, ie, values that fall two standard deviations above the mean or that are in the 1.25 percent tails of either the top or the bottom of the distribution. Given union-negotiated salary minimums, the concern of outliers is only a top-end one, with some of MLS's highest-paid players making astronomically more than the mean salary of roughly \$519,000, which is substantially higher than the median salary of around \$252,000. The nearly double difference between the mean and median salaries suggests a substantial right skew of the data, as can be seen in Figure 4. 2,000,000, as indicated by the red line, felt like a round, reasonable cutoff that gets close to the 2 standard deviation framework. 95.9 percent of players make less than 2 million dollars, with 4.1 percent making more.
 
 ```{r}
 #| label: Figure 4
@@ -164,7 +190,17 @@ salary_ga_total |>
 
 ```
 
-![Figure 5. American Soccer Analysis' Explanation on their G+ Metric](images/g+-2.png)
+We acknowledge this cut-off eliminates a lot of the Designated Players in MLS, those whose roster designations allow their high salaries to have only a minimal hit to the cap. But again, there is so little density in the data for those outliers that we thought it wise to leave high-earning designated player analysis to future research. 
+
+We also decided to eliminate goalkeepers simply because their position is of such a different nature than other positions, and we did not feel comfortable applying the performance metric we used to them without doing more research. This should not be confused with us saying that goalkeepers don’t matter; in fact, research done in *Soccernomics* confirms that they are very impactful to a team's performance and may even be especially undervalued. More research should be done to investigate this question in the future. 
+
+With the filtering of our row-level player data explained, we can now move to examining the column level of our data. As with the team-level data, the most important element of our data set is finding an accurate way of measuring player performance. This is a difficult task to ask of only one metric, especially when trying to do so among all positions.  In our attempt to do this, we decided to use a value-added metric called Goals Added (G+) or  **total_goals_added_raw** in our data set,which we converted to goals added per 90 minutes (**ga_per_90),** using **minutes_played,** to adjust for differences in amounts of time played.G+, created by the leading US soccer analytics group American Soccer Analysis, gives a positive or negative value for every on-ball action throughout a game. If that action increases a player’s team's chances of scoring and decreases their opponents' chances of scoring, then G+ increases. But if that action decreases their team's chances of scoring and increases their opponents' chances of scoring, then G+ decreases. These values are assigned for every action by a player and are summed up to get a player's total G+ for a game, and then can be further summed for each game to get every player’s total G+ for the entire season. More details can be found on the [American Soccer Analysis website](https://www.americansocceranalysis.com/home/2020/5/4/goals-added-deep-dive-methodology). It’s there that we found Figure 5, which shows a real game example of how G+ is calculated across a few actions during a game.
+
+![Figure 5. American Soccer Analysis' Explanation on their G+ Metric](images/g+-2.png){width="500"}
+
+We validated this statistic by seeing how well it predicted a team's actual season performance. Since the G+ model uses xG, it would be imprudent to test its validity through a model with xG, as that would result in collinearity. Thus, we decided to test G+ on total points using a linear model.  We found that a 1 unit increase in team G+ was associated with a statistically significant 1.1 increase in a team's total points, and that the variation in G+ explained 53 percent of the variation in total points (see Tables 4 and 5). This all means, in our view, that there is sufficient evidence to conclude that it can be used to predict team and player success. 
+
+We also looked to see if the metric passed the “eye-test”, meaning that the players we know to be the best in the MLS had the highest G+ values while adjusting for their minutes played. Below is a table of the top 5 players in our dataset (not filtering out those who earned more than \$2 million), ranked by their total G+ per 90 minutes played.
 
 ```{r}
 #| label: Table 1
@@ -228,6 +264,12 @@ top_players |>
     colors = "darkblue"
   )
 ```
+
+The results from Table 1 do tell us that this metric passes the “eye-test” and is a great metric in evaluating player performance. Lionel Messi is one of the best players of all time and is still playing at an extremely high level for his age. Both he and Adam Buksa were the best players on their respective teams that won the Supporters’ Shield. The bottom two players in the table were both the star players on the last two MLS cup-winning teams, and after his 2024 season, Cucho Hernandez got a move to play back in Europe with Conference League finalists Real Betis. G+ does find the best players in the MLS, and therefore makes sense to use when looking at player performance. 
+
+One big limitation of G+, however, is its potential bias towards attacking players. Given that it is an event-based statistic, it might miss certain off-ball qualities and actions that make defenders good players. G+ somewhat tries to account for this by rewarding defenders with G+ interrupted,  as a component of the model that credits defenders with actions that “interrupt” or lower their opponents' chance of scoring. While this may not fully account for the offensive bias inherent in G+, we thought it was enough to continue with it as our main metric for evaluating player performance, acknowledging that more research needs to be done on identifying ways to better measure defensive contributions.
+
+The second most important piece of our column-level data is **guaranteed_compensation,** which is a more complete measure of a player’s **base_salary**. We used guaranteed compensation to create our main statistic for evaluating a player’s efficiency, i.e., the G+ value they are adding per dollar being spent on their contract. The metric **ga_per_90_per_10k**, or goals added per 90 minutes per \$10,000, is calculated by the following formula: (**ga_per_90/guaranteed_compensation) x 10,000,** where we found each player's G+ for every 90 minutes they played, and for every \$10,000 they are paid. Below is a table showing the top 5 most efficient players in our dataset.
 
 ```{r}
 #| label: Table 2
@@ -306,16 +348,40 @@ efficient_players |>
   )
 ```
 
+While Table 1 shows the best overall players, Table 2 shows the most undervalued players, the ones who are being paid less than they are worth for how well they are playing. This list contains much younger players, as well as three domestic (USA and Canada) players who were drafted out of college through the MLS Superdraft. Similarly though to Table 1, all the players are attackers. 
+
+Another important aspect of our data is **general_position** which assigns each player one of 7 main positions in soccer (see figure 7) and **age** which is the player's age during the corresponding **season_name** in that row.
+
+Finally, each player has a **nationality** column which is based on the country of the player's birth. We grouped these nations into 6 **region group**s. Europe, Domestic (USA and Canada), South America, Central America/Caribbean, and Asia/Oceania.
+
 # Methods
 
+**Team Based Models**
+
+We started our analysis with a smaller model to see if teams that spend more on their defense perform more efficiently. We first computed each team's G+ per \$10k, and then found out how much they spend on their attacking and defensive players. We decided to put central midfielders in with attacking midfielders, wingers, and strikers because, through our knowledge of the MLS, these players are asked to play more of an attacking role than a defensive role, but it could vary by team. Center backs, full backs, and defensive midfielders were grouped, and we then divided the average salary per player of the attacking group by the average salary per player of the defensive group. This is a team's forward-to-defensive spend ratio. If it is greater than 1, that team spends more on their attacking players, and vice versa if the ratio is less than 1. We then fitted a linear regression model using this ratio to predict how efficiently each team performed using the G+ \$10k statistic. 
+
+The first of our three main models used for our analysis was built on the team-level data set. For each team, we binned their top 18 highest-paid players into 6 groups of 3, and computed the percentage of the team's total salary in that bin. We did the top 18 paid players because this is the number of spots available on a matchday roster. We experimented with different binning methods, doing 3 groups of 6 and also each of the 18 spots individually, but found that this binning structure made the most sense to find the general spread across a roster. This was then used to evaluate whether top-heavy teams, ones with high percentages in the first bin, or even spread teams, performed better. Again, we used xG difference as our response variable. We used five different models: linear regression, Ridge Regression, Lasso Regression, Elastic Net, and XGBoost. We then used yearly cross-validation, training the model on the teams from the 2021-2023 seasons, and then testing the model's performances on the 2024 season. After that, we used bootstrapped cross-validation to reduce variability in the accuracy of the models and computed the Residual Mean Squared Errors (RMSE) for each model. The lower the RMSE, the better the model performed. XGBoost performed significantly worse compared to the other models, and there was no significant difference between those other four models. Therefore, we used the linear regression model for our analysis because it is the simplest of the four models and therefore has the lowest bias and easiest interpretation. 
+
+**Player Based Models**
+
+We used two types of Models for our player-based evaluations. First, and most commonly, we used linear regression Models with fixed effects to identify the effects of position, age, and region of origin on guaranteed compensation, G+ per 90, and G+ per 90 per \$10,000. We exclusively used linear models for looking at the region of origin and position effects due to their simplicity of interpretation for binary predictor variables. 
+
+For the age’s effect on G+ per 90 per \$10,000, we suspected a potential non-linear relationship. To test for this, we used generalized additive models (GAMs), which allow for non-linear relationships between predictor and response variables via the use of smooth functions. We also used a GAM framework to model salaries’ effect on G+ directly and did this faceted by position with fixed effects for region group and age. This allowed us to observe the relationship between salary and G+  per 90 while allowing the model to display diminishing relationships between salary and G+, which we suspected.
+
+\
+
 # Results
+
+**Team Based Models**
+
+	Our first linear model found that teams that spend a greater proportion of their salary on attacking players perform less efficiently. This relationship can be seen in Figure 6. 
 
 ```{r}
 #| label: Figure 6
 #| echo: false
 #| cache: true
 #| fig-width: 10
-#| fig-height: 7
+#| fig-height: 4
 #| fig-cap: "Figure 6. Shows the relationship between how teams proportionally split up their salary between offensive and dfensive players, and their performance efficiency. Each red dot is a team from the MLS from 2021-2024, and the blue line is the linear regression line."
 
 
@@ -333,12 +399,22 @@ mls_team_analysis|>
 
 ```
 
+Table 6 shows that the relationship is statistically significant, but doesn’t cause a team’s performance efficiency to decrease by a whole lot. However, we can still say that if you know, or want, to spend less money on your team’s roster compared to the rest of the league, it would be better to spend a higher proportion than the rest of the league on your defensive players. 
+
+In analyzing the salary spreads, we found that none of the individual model coefficients were statistically significant at the conventional 0.05 threshold. However, the overall model was statistically significant, with a model p-value of 0.006, suggesting that the different salary bins help explain variation in a team's xG difference better than chance alone. The base category for interpretation is the percentage of salary spent on the top 3 players. Each coefficient in the table represents the difference in xG difference for teams whose salary is concentrated in the other bins relative to the top 3 baseline. While most coefficients were not statistically significant, the bin for players ranked 10–12 came close to significance with a p-value of .07, and had an estimated effect of +2.40. This suggests that, controlling for the percentage spent on the top 3, an increased share of salary allocated to players ranked 10–12 is associated with a 2.40 unit higher xG difference, though this result should be interpreted with caution due to its marginal significance.
+
+**Player Based Models**
+
+The first thing we wanted to examine was whether player salaries are predictive of performance. We started to measure this by fitting 7 linear models faceted by position, measuring guaranteed compensation’s effect on G+ per 90. For all the positions except striker, there was a statistically significant association between guaranteed compensation and G+ per 90. This is interesting because, as we showed in Table 3, team average guaranteed compensation did not affect performance throughout a season.  While positive associations existed, they were small in magnitude. (See table 9)  For fullbacks, for example, the group with the highest coefficient, a 1 dollar increase in guaranteed compensation was associated with a .0000000417 increase in **ga_per_90**. Projecting this throughout a 34-game season and making the salary benchmark 10,000 dollars, as we did with **ga_per_90_per_10k,** the model predicts that for every 10,000 dollars spent on a fullback, he will contribute an additional .014178 G+ throughout a season. That is a small effect. 
+
+One reason we suspect that may have caused this effect to be small, outside of broad market inefficiency, is the non-linear or diminishing relationship between guaranteed compensation and G+. To test for this, we modeled salary and G+ per 90, faceted by position and with fixed effects for age and nationality using GAMs.  (See figure 7) We found that guaranteed compensation still broadly has a positive linear relationship with  G+ per 90 for most positions, but for center back and attacking midfielder, we do observe diminishing positive effects of salary on  G+ per 90. 
+
 ```{r}
 #| label: Figure 7
 #| echo: false
 #| cache: true
-#| fig-width: 10
-#| fig-height: 7
+#| fig-width: 8
+#| fig-height: 6
 #| fig-cap: "Figure 7. Generalized Additive Models showing the relationship between a player's salary and performance, split by their position."
 library(mgcv)
 
@@ -425,7 +501,53 @@ mtext("Note: Model includes players who made less than 2 million dollars and pla
 par(mfrow = c(1, 1), oma = c(0, 0, 0, 0), mar = c(5, 4, 4, 2))
 ```
 
+Our next three linear models involved measuring positional, regional origin, and age effects on guaranteed compensation, G+ per 90, and G+ per 90 per \$10,000. See tables (10-14). We used domestic and fullback as our benchmark variables, as that combination was the most common in our data. 
+
+As seen from the **first player trait model (table 10),** measuring effects on guaranteed compensation, every position is paid more than fullbacks, with Attacking Midfielders making the most, earning \$354,967 relative to fullbacks. Africans, South Americans, and Europeans all earn more than domestic players, with Europeans enjoying the biggest difference, earning \$248,329 more than domestic players on average. The Central American/Caribbean and Asia/Oceania groups showed no statistically significant difference in salary relative to domestic players. Age was positively associated with salary. The model predicts that a 1-year increase in age is associated with a \$32,703 increase in guaranteed compensation. 
+
+The **second player trait linear model (table 12)** measured these player traits' effects on G+ per 90. Attacking positions (ST, AM, W) contribute by far more G+ per 90 relative to fullbacks, with strikers contributing a full .100 more according to the model. The other positions also contributed more  G+ per 90 than fullbacks, but by a smaller margin. Every region except Africa had a statistically significant positive effect on Ga+ per 90 relative to domestic players, with Asia/Oceania contributing .0223 G+ per 90 more than domestic players, the highest difference of all the regions. Age had no statistically significant relationship with G+ per 90.
+
+**The third player trait model (table 14),** measuring traits on G+ per 90 per \$10,000, our metric for contract value,  had 6 statistically significant findings. First, Strikers and Wingers had a statistically significant, small positive relationship with G+ per 90 per \$10,000, with those positions being associated with  .00129 and .000932 increases in G+ per 90 per \$10,000, respectively. Europe, South America, and Asia/Oceania were all associated with negative G+ per 90 per \$10,000. Europe had the largest magnitude of the negative coefficients, with the region being associated with a .00276 decrease in G+ per 90 per \$10,000. Age also had a negative relationship with contract value. Our model found that a 1-year increase in age was associated with a  .000452 decrease in G+ per 90 per \$10,000. 
+
+Given that age is a continuous variable, we thought it was diligent to test whether there was a non-linear relationship between age and contract value (G+ per 90 per \$10,000). Our fixed effects GAM found that Age’s true effect on contract value looked like a parabola or a smile. As age increased, G+ per 90 per \$10,000 decreased until between ages 32-33, after which contract value began increasing again.
+
 # Discussion
+
+**Salaries' Relationship to Success**
+
+While we found that team average salary spending does not correlate with success, there was a small statistically significant linear positive correlation between individual players' salaries and their G+ per 90.  This was true among all positions except striker. This linear relationship also appeared when we fitted GAMs, although it seems that salary has diminishing effects on G+ per 90 for some positions. Our view is that these two things can be true at the same time. It seems plausible that salary can have a small predictive effect on player performance while not exhibiting the same effect team-wide due to certain outlier players on huge contracts that may be skewing the team's total wage bill (see Toronto or Miami), and other factors that may help or hurt a team outside of spending. More research should be done addressing these conflicting player and team-wide findings. 
+
+**Position Spending**
+
+The results from our first team-level linear model found that teams with a lower budget can earn a higher total G+ per dollar when spending a higher than league average proportion of their total salary on defensive players rather than offensive players. See figure 6.  This is contradicted by the 3rd player trait level linear model (see Table 14) which found that it was strikers and wingers who had the highest G+ per \$10,000. This contradiction may be due to G+'s offensive bias. As has been discussed in our data section, even though G+ is highly correlated with team success, it might overestimate offensive contributions and underestimate defensive ones. This offensive overestimation is also backed up by the 2nd player trait level linear model (Table 12) which showed that attackers have far higher G+ than defenders. Defensive underestimation could explain why a team-level model using xG difference as the performance metric might detect spending on defense as beneficial for efficiency, whereas a G+ based linear model may find the opposite. That being said, player trait linear model 1 found clear evidence that defenders were paid far less than their offensive counterparts, which may suggest that the market rate for good defense is cheaper than good offense. In summary, we don’t believe we have the evidence to conclude that there are any major positional differences in contract value, but cautiously think that poorer teams might have an easier time acquiring a good defense than a similarly strong offense. We believe more research should be done to both investigate positional spending and create new metrics that are better at measuring off-ball defensive contributions.  
+
+**Salary Spread**
+
+In terms of the salary distribution throughout the top 18 highest-paid players on a roster, our model suggests that a higher percentage of a team's budget than what is being seen right now should be spent on the middle of their roster. This is where most of the Targeted and General Allocation Money will be used. Players here still play solid minutes and have a large effect on the team’s performance, but are not close to superstar level, and are in more of a supporting role to the stars of the team. Inter Miami’s current roster is a great example. They have the best player in MLS, and one of the greatest players of all time in Lionel Messi, and pay him the largest contract in the league. But they haven’t necessarily performed to expectations so far, and that is largely because of how weak their defense is, which is also because they spend so little on this area, as they are spending more money on attackers. Based on our findings, we think they would perform better if they paid these defensive players and ones in the Targeted and General Allocation Money pool a higher percentage of their total salary, and lowered the salary of their attackers. Inter Miami is also a good example of a limitation we found with this modeling. There could be collinearity with teams that spend a higher percentage of their salary on their top 3 players and their total guaranteed compensation. So in the future, we should run a fixed effects model to control for a team’s total salary spend. Lastly, we are still cautious of these recommendations as none of the variables in the model and their effect on team performance could be ruled out as not happening by chance. 
+
+**Regional Origin Effects**
+
+Our modeling (see Tables 10, 12, and 14) strongly suggests that European, South American, and Asian/Oceanic players are overpaid relative to their domestic counterparts. This aligns with ideas published in *Soccernomics*, which suggest certain soccer “exotic” nationalities might be overpaid. This may be due to market inefficient romantic ideas that South Americans and Europeans are more “sophisticated”  soccer players, and that players from those regions may be coming from leagues with higher average salaries and thus have the leverage to demand higher wages. Regardless of the reason, MLS clubs would be smart not to overlook domestic players when making roster decisions, as they may provide better contract value. 
+
+**Age**
+
+Player traits linear models 1, 2, and 3 (tables 10, 12, and 14) show that older players are paid more, don’t contribute more G+, and thus that age is negatively associated with G+ per 90 per \$10,000. Our generalized additive model, looking at G+ per 90 per \$10,000, which allows for the fitting of a non-linear relationship, confirms age's negative association with contract value but adds an interesting caveat.  While age is negatively associated with contract value, after about ages 32-33, age’s relationship with G+ per 90 per \$10,000 reverses and becomes positive. Thus, age's relationship with G+ is shaped like a parabola or a smile (see figure 9).  This means that while younger players may present positive opportunities for contract value, the oldest players, in the twilight of their career, may as well. The confidence interval widens, however, as age increases, so our broad view is that older players are overvalued. 
+
+**The Super Draft and The Academy: Opportunities for Value**
+
+Our analysis suggests that younger, domestic players are often those who have the highest contract value.. More research is needed to conclude this, including doing more modeling with interaction terms for age and region. If it is true, however, that younger, domestic players are undervalued as a subgroup, that would suggest that MLS teams should look to invest in the sources that produce them. Those two sources that produce young Domestic players are academies and the Super Draft. We find the Super Draft particularly interesting, as we believe it has a negative reputation among MLS general managers. Charlotte FC strayed from this view when they traded up to acquire the 12th overall draft pick in the 2023 MLS Super Draft and drafted American forward Patrick Agyemang. In 2024, Agyemang scored 10 goals and contributed a staggering .33 G+ per 90 while only earning \$71,401. It would go on to be the season with the highest contract value in all of our data (See table 2). While many super draft players bust and never make meaningful impacts, it may present a better low-risk/high-reward opportunity for value than it currently is given credit for, given that fresh out of college players often demand a low average salary. Future research should examine homegrown and draft picks’ performance-based contract value statistics like G+ per 90 per \$10,000, to see if those are aspects of MLS roster construction that general managers are overlooking.
+
+# Acknowledgements
+
+Many thanks to Daniel Wicker, Dr. Yurko, and Quang Nguyen for their support and guidance throughout our project. As well, thank you to the entire CMSAC staff for making this camp possible and providing us with this incredible experience.
+
+# Citations
+
+1.  Kuper, Simon and Szymanski, Stefan.  2022. Soccernomics: Why European Men and American Women Win and Billionaire Owners Are Destined to Lose. Hachette Book Group. 
+
+2.  Kullowatz, Matthias. “Goals Added: Deep Dive Methodology.” American Soccer Analysis, 4 May 2020, <https://www.americansocceranalysis.com/home/2020/5/4/goals-added-deep-dive-methodology>
+
+3.  “What Are Goals Added (G+)?” American Soccer Analysis, <https://www.americansocceranalysis.com/what-are-goals-added> Accessed 24 Jul. 2025.
 
 # Appendix
 
@@ -975,7 +1097,7 @@ position_lm_results |>
   kable(
     digits = 5,
     col.names = c("Position", "Term", "Estimate", "SE", "t", "p"),
-    caption = "Table 9. Linear Model Summary Predicting Goals Added Per $10k of Compensation by Position"
+    caption = "Table 9. Linear Model Summary Predicting Goals Added Per 90 min. by Position"
   )
 ```
 

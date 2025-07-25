@@ -956,7 +956,9 @@ ggplot(boot_rmses_df, aes(x = rmse, fill = model)) +
   geom_density(alpha = 0.4) +
   labs(title = "Bootstrapped RMSE Distributions", x = "RMSE", y = "Density") +
   theme_minimal()+
-  theme(plot.title=element_text(size=20, face="bold", hjust=.5))
+  theme(plot.title=element_text(size=20, face="bold", hjust=.5),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 20))
 
 grid <- expand.grid(
   leftmiddle3_pct = seq(1, 50, by = .5),
